@@ -213,4 +213,8 @@ export class Masks {
 
         return !(hasNeg && hasPos);
     }
+
+    enemyVisible(enemy: Phaser.Physics.Arcade.Image): boolean {
+        return true
+    }
 }
