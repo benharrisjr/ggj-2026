@@ -490,52 +490,6 @@ export class Game extends Scene {
         this.justSpawnedOnDoor = true;
     }
 
-    getTrianglePoints(x: number, y: number, angle: number, size: number = 40): { p1: { x: number; y: number }; p2: { x: number; y: number }; p3: { x: number; y: number } } {
-        // Calculate the three points of the triangle rotated by the given angle
-        // Base triangle points before rotation (pointing up):
-        // Top: (0, -size)
-        // Bottom left: (-size, size)
-        // Bottom right: (size, size)
-
-        const cos = Math.cos(angle);
-        const sin = Math.sin(angle);
-
-        // Rotate and translate each point
-        const p1 = {
-            x: x + (0 * cos - (-size) * sin),
-            y: y + (0 * sin + (-size) * cos)
-        };
-
-        const p2 = {
-            x: x + ((-size) * cos - size * sin),
-            y: y + ((-size) * sin + size * cos)
-        };
-
-        const p3 = {
-            x: x + (size * cos - size * sin),
-            y: y + (size * sin + size * cos)
-        };
-
-        return { p1, p2, p3 };
-    }
-
-    isPointInTriangle(px: number, py: number, p1: { x: number; y: number }, p2: { x: number; y: number }, p3: { x: number; y: number }): boolean {
-        // Using barycentric coordinates to check if point is inside triangle
-        const sign = (p1: { x: number; y: number }, p2: { x: number; y: number }, p3: { x: number; y: number }) => {
-            return (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
-        };
-
-        const point = { x: px, y: py };
-        const d1 = sign(point, p1, p2);
-        const d2 = sign(point, p2, p3);
-        const d3 = sign(point, p3, p1);
-
-        const hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0);
-        const hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0);
-
-        return !(hasNeg && hasPos);
-    }
-
     handleInput(): { x: number; y: number } {
         let x = 0;
         let y = 0;
@@ -639,20 +593,6 @@ export class Game extends Scene {
         }
 
         this.masks.update()
-
-        // Check if each enemy is inside the mask triangle
-        const trianglePoints = this.getTrianglePoints(this.player.x, this.player.y, this.playerAngle, 80);
-        this.enemies.getChildren().forEach((enemy) => {
-            const enemySprite = enemy as Phaser.Physics.Arcade.Image;
-            const enemyInMask = this.isPointInTriangle(
-                enemySprite.x,
-                enemySprite.y,
-                trianglePoints.p1,
-                trianglePoints.p2,
-                trianglePoints.p3
-            );
-            enemySprite.setVisible(enemyInMask);
-        });
 
         // Reset spawn flag if player is no longer overlapping any doors
         if (this.justSpawnedOnDoor) {
