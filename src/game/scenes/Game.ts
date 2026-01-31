@@ -12,6 +12,7 @@ export class Game extends Scene {
 
     create() {
         this.camera = this.cameras.main;
+        this.camera.setZoom(1.0);
         this.camera.setBackgroundColor(0x00ff00);
 
         this.background = this.add.image(512, 384, 'background');
