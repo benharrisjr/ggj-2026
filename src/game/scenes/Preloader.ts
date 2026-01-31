@@ -66,6 +66,12 @@ export class Preloader extends Scene
         this.load.image('heart', 'heart.png');
         this.load.image('heart-half', 'heart-half.png');
         this.load.image('heart-empty', 'heart-empty.png');
+
+        // UI - Touch controls
+        this.load.image('btn-up', 'up.png');
+        this.load.image('btn-down', 'down.png');
+        this.load.image('btn-left', 'left.png');
+        this.load.image('btn-right', 'right.png');
     }
 
     create ()
