@@ -746,8 +746,21 @@ export class Game extends Scene {
                 this.enemySpottedSound.play();
             }
 
-            // Freeze enemy when in player's view, unfreeze when not
-            if (enemyInMask) {
+            // Check if enemy is behind the player (outside forward 180 degree arc)
+            const angleToEnemy = Math.atan2(
+                enemySprite.y - this.player.y,
+                enemySprite.x - this.player.x
+            );
+            // Player faces opposite of playerAngle (subtract PI to get forward direction)
+            const playerForward = this.playerAngle - Math.PI;
+            let angleDiff = angleToEnemy - playerForward;
+            // Normalize to -PI to PI
+            while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+            while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+            const isBehindPlayer = Math.abs(angleDiff) > Math.PI / 2;
+
+            // Freeze enemy when in player's view AND in front of player
+            if (enemyInMask && !isBehindPlayer) {
                 // Store current velocity before freezing (if not already frozen)
                 if (!enemySprite.getData('frozen')) {
                     enemySprite.setData('savedVelocityX', enemySprite.body?.velocity.x || 0);
