@@ -35,6 +35,8 @@ export class Preloader extends Scene
         this.load.image('logo', 'logo.png');
         this.load.image('player', 'Tiles/tile_0084.png');
         this.load.image('enemy', 'Tiles/tile_0108.png');
+        this.load.image('enemy2', 'kpop-demon.png');
+        this.load.image('enemy3', 'bubbly-sheep.png');
 
         // Level 0 assets
         this.load.image('level_0', 'Level_0/Tiles.png');
@@ -52,6 +54,11 @@ export class Preloader extends Scene
         // Door sounds
         this.load.audio('doorOpen', 'audio/doorOpen_1.ogg');
         this.load.audio('doorClose', 'audio/doorClose_1.ogg');
+
+        // UI - Health hearts
+        this.load.image('heart', 'heart.png');
+        this.load.image('heart-half', 'heart-half.png');
+        this.load.image('heart-empty', 'heart-empty.png');
     }
 
     create ()

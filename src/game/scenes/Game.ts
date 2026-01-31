@@ -9,21 +9,31 @@ const DOOR_COLORS: { r: number; g: number; b: number; targetLevel: number }[] = 
     // { r: 102, g: 57, b: 49, targetLevel: 2 },  // #663931 -> Level 2
 ];
 
+// Special tile colors
+const PLAYER_SPAWN_COLOR = { r: 99, g: 199, b: 77 };   // #63C74D - player spawn
+const ENEMY_SPAWN_COLOR = { r: 215, g: 67, b: 207 };   // #D743CF - enemy spawn
+
 interface DoorData {
     x: number;
     y: number;
     targetLevel: number;
 }
 
+interface SpawnPoint {
+    x: number;
+    y: number;
+}
+
 export class Game extends Scene {
     camera: Phaser.Cameras.Scene2D.Camera;
     background: Phaser.GameObjects.Image;
     player: Phaser.Physics.Arcade.Image; // Changed to Arcade.Image for physics
-    enemys: Phaser.Physics.Arcade.Group;
-    enemy: Phaser.Physics.Arcade.Image;
+    enemies: Phaser.Physics.Arcade.Group;
     walls: Phaser.Physics.Arcade.StaticGroup;
     doors: Phaser.Physics.Arcade.StaticGroup;
     doorDataList: DoorData[];
+    playerSpawnPoint: SpawnPoint | null;
+    enemySpawnPoints: SpawnPoint[];
     cursors: Phaser.Types.Input.Keyboard.CursorKeys;
     wasd: { up: Phaser.Input.Keyboard.Key; down: Phaser.Input.Keyboard.Key; left: Phaser.Input.Keyboard.Key; right: Phaser.Input.Keyboard.Key };
     maskGraphics: Phaser.GameObjects.Graphics;
@@ -38,6 +48,12 @@ export class Game extends Scene {
     doorOpenSound: Phaser.Sound.BaseSound;
     doorCloseSound: Phaser.Sound.BaseSound;
     transitionOverlay: Phaser.GameObjects.Graphics;
+
+    // Health system
+    playerHealth: number = 6;
+    playerMaxHealth: number = 6;
+    heartSprites: Phaser.GameObjects.Image[] = [];
+    isInvincible: boolean = false;
 
     constructor() {
         super('Game');
@@ -57,11 +73,12 @@ export class Game extends Scene {
         // Set up world and camera bounds based on level size
         this.setupLevelBounds();
 
-        // Create collision layer from IntGrid
+        // Create collision layer from IntGrid (also populates spawn points)
         this.createCollisionLayer();
 
-        // Enable physics for the player
-        this.player = this.physics.add.image(200, 250, 'player');
+        // Enable physics for the player at spawn point
+        const playerStart = this.playerSpawnPoint || { x: 200, y: 250 };
+        this.player = this.physics.add.image(playerStart.x, playerStart.y, 'player');
         this.player.setScale(2.0);
         this.player.setCollideWorldBounds(true);
 
@@ -88,9 +105,15 @@ export class Game extends Scene {
         this.doorOpenSound = this.sound.add('doorOpen', { volume: 0.5 });
         this.doorCloseSound = this.sound.add('doorClose', { volume: 0.5 });
 
-        this.enemys = this.physics.add.group();
-        this.enemy = this.enemys.create(200, 200, 'enemy');
-        this.enemy.setScale(2.0);
+        // Create enemies group and spawn at all enemy spawn points
+        this.enemies = this.physics.add.group();
+        this.spawnEnemies();
+
+        // Add collision between player and enemies (for damage)
+        this.physics.add.overlap(this.player, this.enemies, this.onEnemyCollision, undefined, this);
+
+        // Create health UI
+        this.createHealthUI();
 
         // Create cursor keys for input
         this.cursors = this.input.keyboard.createCursorKeys();
@@ -166,6 +189,8 @@ export class Game extends Scene {
         this.walls = this.physics.add.staticGroup();
         this.doors = this.physics.add.staticGroup();
         this.doorDataList = [];
+        this.playerSpawnPoint = null;
+        this.enemySpawnPoints = [];
 
         // IntGrid is 20x11, each cell represents 16x16 pixels in Tiles.png
         // With 2.0 scale, each cell is 32x32 in game world
@@ -205,6 +230,24 @@ export class Game extends Scene {
                 const worldX = x * tileSize + tileSize / 2;
                 const worldY = y * tileSize + tileSize / 2;
 
+                // Check for player spawn point (#63C74D)
+                if (Math.abs(r - PLAYER_SPAWN_COLOR.r) < colorTolerance &&
+                    Math.abs(g - PLAYER_SPAWN_COLOR.g) < colorTolerance &&
+                    Math.abs(b - PLAYER_SPAWN_COLOR.b) < colorTolerance) {
+                    this.playerSpawnPoint = { x: worldX, y: worldY };
+                    console.log('Found player spawn point:', worldX, worldY);
+                    continue;
+                }
+
+                // Check for enemy spawn point (#D743CF)
+                if (Math.abs(r - ENEMY_SPAWN_COLOR.r) < colorTolerance &&
+                    Math.abs(g - ENEMY_SPAWN_COLOR.g) < colorTolerance &&
+                    Math.abs(b - ENEMY_SPAWN_COLOR.b) < colorTolerance) {
+                    this.enemySpawnPoints.push({ x: worldX, y: worldY });
+                    console.log('Found enemy spawn point:', worldX, worldY);
+                    continue;
+                }
+
                 // Check if pixel matches any door color
                 let isDoor = false;
                 for (const doorColor of DOOR_COLORS) {
@@ -240,7 +283,117 @@ export class Game extends Scene {
             }
         }
 
-        console.log('Created walls:', wallCount, 'doors:', doorCount, 'doorData:', this.doorDataList);
+        console.log('Created walls:', wallCount, 'doors:', doorCount, 'enemySpawns:', this.enemySpawnPoints.length);
+    }
+
+    spawnEnemies() {
+        // Clear existing enemies
+        this.enemies.clear(true, true);
+
+        const enemySprites = ['enemy', 'enemy2', 'enemy3'];
+
+        // Spawn enemy at each spawn point with random sprite
+        for (const spawn of this.enemySpawnPoints) {
+            const randomSprite = enemySprites[Math.floor(Math.random() * enemySprites.length)];
+            const enemy = this.enemies.create(spawn.x, spawn.y, randomSprite) as Phaser.Physics.Arcade.Image;
+            enemy.setScale(2.0);
+        }
+
+        console.log('Spawned', this.enemySpawnPoints.length, 'enemies');
+    }
+
+    createHealthUI() {
+        // Clear existing hearts
+        this.heartSprites.forEach(heart => heart.destroy());
+        this.heartSprites = [];
+
+        // Calculate max hearts (each heart = 2 health)
+        const maxHearts = Math.ceil(this.playerMaxHealth / 2);
+        const heartsPerRow = 8;
+        const heartSpacing = 32;
+        const startX = 16;
+        const startY = 16;
+        const rowHeight = 20;
+
+        for (let i = 0; i < maxHearts; i++) {
+            const row = Math.floor(i / heartsPerRow);
+            const col = i % heartsPerRow;
+            const x = startX + col * heartSpacing;
+            const y = startY + row * rowHeight;
+
+            const heart = this.add.image(x, y, 'heart');
+            heart.setScrollFactor(0); // Fixed to camera
+            heart.setDepth(999); // Above most things, below transition overlay
+            heart.setScale(2.0);
+            this.heartSprites.push(heart);
+        }
+
+        this.updateHealthDisplay();
+    }
+
+    updateHealthDisplay() {
+        const maxHearts = Math.ceil(this.playerMaxHealth / 2);
+
+        for (let i = 0; i < maxHearts; i++) {
+            const heartValue = (i + 1) * 2; // Health value this heart represents (2, 4, 6, etc.)
+            const heart = this.heartSprites[i];
+
+            if (this.playerHealth >= heartValue) {
+                // Full heart
+                heart.setTexture('heart');
+            } else if (this.playerHealth === heartValue - 1) {
+                // Half heart
+                heart.setTexture('heart-half');
+            } else {
+                // Empty heart
+                heart.setTexture('heart-empty');
+            }
+        }
+    }
+
+    onEnemyCollision() {
+        // Don't take damage if invincible or transitioning
+        if (this.isInvincible || this.isTransitioning) return;
+
+        // Take damage
+        this.playerHealth -= 1;
+        console.log('Player hit! Health:', this.playerHealth);
+
+        // Update health display
+        this.updateHealthDisplay();
+
+        // Become invincible briefly
+        this.isInvincible = true;
+
+        // Flash player to indicate damage
+        this.tweens.add({
+            targets: this.player,
+            alpha: 0.3,
+            duration: 100,
+            yoyo: true,
+            repeat: 5,
+            onComplete: () => {
+                this.player.setAlpha(1);
+                this.isInvincible = false;
+            }
+        });
+
+        // Check for death
+        if (this.playerHealth <= 0) {
+            this.onPlayerDeath();
+        }
+    }
+
+    onPlayerDeath() {
+        console.log('Player died!');
+        // Reset health and respawn at player spawn point
+        this.playerHealth = this.playerMaxHealth;
+        this.updateHealthDisplay();
+
+        // Respawn at player spawn point or fallback position
+        const spawnPoint = this.playerSpawnPoint || { x: 100, y: 100 };
+        this.player.setPosition(spawnPoint.x, spawnPoint.y);
+        this.camera.centerOn(spawnPoint.x, spawnPoint.y);
     }
 
     onDoorCollision(_player: Phaser.GameObjects.GameObject, door: Phaser.GameObjects.GameObject) {
@@ -335,6 +488,12 @@ export class Game extends Scene {
 
         // Play door close sound
         this.doorCloseSound.play();
+
+        // Spawn enemies for this level
+        this.spawnEnemies();
+
+        // Re-add enemy collision
+        this.physics.add.overlap(this.player, this.enemies, this.onEnemyCollision, undefined, this);
 
         // Mark that player just spawned (may be on a door)
         this.justSpawnedOnDoor = true;
@@ -499,17 +658,19 @@ export class Game extends Scene {
         // Draw rotated triangle centered on player
         this.drawRotatedTriangle(this.player.x, this.player.y, this.playerAngle, 80);
 
-        // Check if enemy is inside the mask triangle
+        // Check if each enemy is inside the mask triangle
         const trianglePoints = this.getTrianglePoints(this.player.x, this.player.y, this.playerAngle, 80);
-        const enemyInMask = this.isPointInTriangle(
-            this.enemy.x,
-            this.enemy.y,
-            trianglePoints.p1,
-            trianglePoints.p2,
-            trianglePoints.p3
-        );
-
-        this.enemy.setVisible(enemyInMask);
+        this.enemies.getChildren().forEach((enemy) => {
+            const enemySprite = enemy as Phaser.Physics.Arcade.Image;
+            const enemyInMask = this.isPointInTriangle(
+                enemySprite.x,
+                enemySprite.y,
+                trianglePoints.p1,
+                trianglePoints.p2,
+                trianglePoints.p3
+            );
+            enemySprite.setVisible(enemyInMask);
+        });
 
         // Reset spawn flag if player is no longer overlapping any doors
         if (this.justSpawnedOnDoor) {
