@@ -20,7 +20,13 @@ const config: Phaser.Types.Core.GameConfig = {
         }
     },
     render: {
-        antialias: false,
+        pixelArt: true,
+    },
+    scale: {
+        parent: 'game-container',
+        // mode: Phaser.Scale.FIT,
+        width: 640,
+        height: 360,
     },
     scene: [
         Boot,
