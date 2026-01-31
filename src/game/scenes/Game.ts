@@ -1,4 +1,5 @@
 import { Scene } from 'phaser';
+import { Masks } from '../systems/masks/masks';
 
 // Door color mapping: RGB color -> target level
 // Add new colors here to create doors to different levels
@@ -55,9 +56,10 @@ export class Game extends Scene {
     heartSprites: Phaser.GameObjects.Image[] = [];
     isInvincible: boolean = false;
 
+    masks: Masks
+
     constructor() {
         super('Game');
-
     }
 
     create() {
@@ -126,18 +128,7 @@ export class Game extends Scene {
             right: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D)
         };
 
-        // Create overlay that covers the entire level (will be masked)
-        const overlay = this.add.graphics();
-        overlay.fillStyle(0x000000, 0.8).fillRect(0, 0, 2000, 2000); // Large enough for any level
-
-        this.maskGraphics = this.make.graphics();
-        this.maskGraphics.fillStyle(0xffffff);
-        // Draw initial rotated triangle
-        this.drawRotatedTriangle(this.player.x, this.player.y, this.playerAngle);
-
-        const mask = new Phaser.Display.Masks.BitmapMask(this, this.maskGraphics);
-        mask.invertAlpha = true;
-        overlay.setMask(mask);
+        this.masks = new Masks(this)
 
         // Create transition overlay (separate from fog-of-war mask)
         this.transitionOverlay = this.add.graphics();
@@ -528,11 +519,6 @@ export class Game extends Scene {
         return { p1, p2, p3 };
     }
 
-    drawRotatedTriangle(x: number, y: number, angle: number, size: number = 40) {
-        const { p1, p2, p3 } = this.getTrianglePoints(x, y, angle, size);
-        this.maskGraphics.fillTriangle(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
-    }
-
     isPointInTriangle(px: number, py: number, p1: { x: number; y: number }, p2: { x: number; y: number }, p3: { x: number; y: number }): boolean {
         // Using barycentric coordinates to check if point is inside triangle
         const sign = (p1: { x: number; y: number }, p2: { x: number; y: number }, p3: { x: number; y: number }) => {
@@ -652,11 +638,7 @@ export class Game extends Scene {
             }
         }
 
-        // Update mask to follow player (clear previous frame to prevent trails)
-        this.maskGraphics.clear();
-        this.maskGraphics.fillStyle(0xffffff);
-        // Draw rotated triangle centered on player
-        this.drawRotatedTriangle(this.player.x, this.player.y, this.playerAngle, 80);
+        this.masks.update()
 
         // Check if each enemy is inside the mask triangle
         const trianglePoints = this.getTrianglePoints(this.player.x, this.player.y, this.playerAngle, 80);
