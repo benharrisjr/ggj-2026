@@ -1,0 +1,20 @@
+{
+	"identifier": "Level_1",
+	"uniqueIdentifer": "25356b50-fa90-11f0-a2a2-9329ab3ed78c",
+	"x": 0,
+	"y": -432,
+	"width": 704,
+	"height": 432,
+	"bgColor": "#696A79",
+	"neighbourLevels": [
+		{
+			"levelIid": "84d87ec1-fa90-11f0-9d21-b9c99e6955cd",
+			"dir": "s"
+		}
+	],
+	"customFields" : {},
+	"layers": [
+		"Tiles.png"
+	],
+	"entities" : {}
+}

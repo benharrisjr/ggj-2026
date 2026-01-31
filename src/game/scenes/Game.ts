@@ -7,11 +7,13 @@ export class Game extends Scene {
     enemys: Phaser.Physics.Arcade.Group;
     enemy: Phaser.Physics.Arcade.Image;
     walls: Phaser.Physics.Arcade.StaticGroup;
+    doors: Phaser.Physics.Arcade.StaticGroup;
     cursors: Phaser.Types.Input.Keyboard.CursorKeys;
     wasd: { up: Phaser.Input.Keyboard.Key; down: Phaser.Input.Keyboard.Key; left: Phaser.Input.Keyboard.Key; right: Phaser.Input.Keyboard.Key };
     maskGraphics: Phaser.GameObjects.Graphics;
     playerAngle: number = 0; // Start facing up (after correction)
     gamepad: Phaser.Input.Gamepad.Gamepad;
+    currentLevel: number = 0;
 
     constructor() {
         super('Game');
@@ -23,8 +25,13 @@ export class Game extends Scene {
         this.camera.setZoom(1.0);
         this.camera.setBackgroundColor(0x00ff00);
 
-        this.background = this.add.image(320, 176, 'level');
+        // Create background at origin (0,0)
+        this.background = this.add.image(0, 0, `level_${this.currentLevel}`);
+        this.background.setOrigin(0, 0);
         this.background.setScale(2.0);
+
+        // Set up world and camera bounds based on level size
+        this.setupLevelBounds();
 
         // Create collision layer from IntGrid
         this.createCollisionLayer();
@@ -32,10 +39,16 @@ export class Game extends Scene {
         // Enable physics for the player
         this.player = this.physics.add.image(200, 250, 'player');
         this.player.setScale(2.0);
-        this.player.setCollideWorldBounds(true); // Prevent the player from leaving the screen
+        this.player.setCollideWorldBounds(true);
+
+        // Camera follows player
+        this.camera.startFollow(this.player, true, 0.1, 0.1);
 
         // Add collision between player and walls
         this.physics.add.collider(this.player, this.walls);
+
+        // Add overlap detection for doors
+        this.physics.add.overlap(this.player, this.doors, this.onDoorCollision, undefined, this);
 
         this.enemys = this.physics.add.group();
         this.enemy = this.enemys.create(200, 200, 'enemy');
@@ -52,32 +65,44 @@ export class Game extends Scene {
             right: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D)
         };
 
+        // Create overlay that covers the entire level (will be masked)
         const overlay = this.add.graphics();
-
-        overlay.fillStyle(0x000000, 0.8).fillRect(0, 0, 800, 600);
+        overlay.fillStyle(0x000000, 0.8).fillRect(0, 0, 2000, 2000); // Large enough for any level
 
         this.maskGraphics = this.make.graphics();
-
         this.maskGraphics.fillStyle(0xffffff);
         // Draw initial rotated triangle
         this.drawRotatedTriangle(this.player.x, this.player.y, this.playerAngle);
 
         const mask = new Phaser.Display.Masks.BitmapMask(this, this.maskGraphics);
-
         mask.invertAlpha = true;
-
         overlay.setMask(mask);
+    }
+
+    setupLevelBounds() {
+        // Get level dimensions from the background texture (scaled 2x)
+        const levelWidth = this.background.displayWidth;
+        const levelHeight = this.background.displayHeight;
+
+        console.log('Level bounds:', levelWidth, levelHeight);
+
+        // Set physics world bounds
+        this.physics.world.setBounds(0, 0, levelWidth, levelHeight);
+
+        // Set camera bounds
+        this.camera.setBounds(0, 0, levelWidth, levelHeight);
     }
 
     createCollisionLayer() {
         this.walls = this.physics.add.staticGroup();
+        this.doors = this.physics.add.staticGroup();
 
         // IntGrid is 20x11, each cell represents 16x16 pixels in Tiles.png
         // With 2.0 scale, each cell is 32x32 in game world
         const tileSize = 32;
 
         // Get the intgrid texture and read pixel data
-        const texture = this.textures.get('intgrid');
+        const texture = this.textures.get(`intgrid_${this.currentLevel}`);
         const source = texture.getSourceImage() as HTMLImageElement;
 
         console.log('IntGrid source size:', source.width, source.height);
@@ -92,6 +117,11 @@ export class Game extends Scene {
         const pixels = imageData.data;
 
         let wallCount = 0;
+        let doorCount = 0;
+
+        // Door color: #BE4A2F = R:190, G:74, B:47
+        const doorR = 190, doorG = 74, doorB = 47;
+        const colorTolerance = 20;
 
         // Loop through each pixel in the IntGrid
         for (let y = 0; y < source.height; y++) {
@@ -102,22 +132,61 @@ export class Game extends Scene {
                 const b = pixels[pixelIndex + 2];
                 const a = pixels[pixelIndex + 3];
 
-                // Check if pixel is black (collision tile) - non-transparent
-                if (r < 50 && g < 50 && b < 50 && a > 200) {
-                    // Create collision rectangle at this position
-                    // Position is center of tile, offset from level origin (0,0)
-                    const worldX = x * tileSize + tileSize / 2;
-                    const worldY = y * tileSize + tileSize / 2;
+                // Position is center of tile, offset from level origin (0,0)
+                const worldX = x * tileSize + tileSize / 2;
+                const worldY = y * tileSize + tileSize / 2;
 
+                // Check if pixel is door color (#BE4A2F)
+                if (Math.abs(r - doorR) < colorTolerance &&
+                    Math.abs(g - doorG) < colorTolerance &&
+                    Math.abs(b - doorB) < colorTolerance &&
+                    a > 200) {
+                    const door = this.add.rectangle(worldX, worldY, tileSize, tileSize);
+                    this.physics.add.existing(door, true);
+                    this.doors.add(door);
+                    doorCount++;
+                }
+                // Check if pixel is black (wall tile)
+                else if (r < 50 && g < 50 && b < 50 && a > 200) {
                     const wall = this.add.rectangle(worldX, worldY, tileSize, tileSize);
-                    this.physics.add.existing(wall, true); // true = static body
+                    this.physics.add.existing(wall, true);
                     this.walls.add(wall);
                     wallCount++;
                 }
             }
         }
 
-        console.log('Created walls:', wallCount);
+        console.log('Created walls:', wallCount, 'doors:', doorCount);
+    }
+
+    onDoorCollision() {
+        console.log('Door collision! Loading next level...');
+        this.loadLevel(this.currentLevel + 1);
+    }
+
+    loadLevel(levelIndex: number) {
+        // Clear existing walls and doors
+        this.walls.clear(true, true);
+        this.doors.clear(true, true);
+
+        // Update current level
+        this.currentLevel = levelIndex;
+
+        // Update background
+        this.background.setTexture(`level_${this.currentLevel}`);
+
+        // Update world and camera bounds for new level size
+        this.setupLevelBounds();
+
+        // Recreate collision layer for new level
+        this.createCollisionLayer();
+
+        // Re-add colliders
+        this.physics.add.collider(this.player, this.walls);
+        this.physics.add.overlap(this.player, this.doors, this.onDoorCollision, undefined, this);
+
+        // Move player to starting position for new level
+        this.player.setPosition(100, 100);
     }
 
     getTrianglePoints(x: number, y: number, angle: number, size: number = 40): { p1: { x: number; y: number }; p2: { x: number; y: number }; p3: { x: number; y: number } } {
