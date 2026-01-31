@@ -55,6 +55,10 @@ export class Preloader extends Scene
         this.load.audio('doorOpen', 'audio/doorOpen_1.ogg');
         this.load.audio('doorClose', 'audio/doorClose_1.ogg');
 
+        // Combat sounds
+        this.load.audio('playerHurt', 'audio/Hit_Hurt23.wav');
+        this.load.audio('enemySpotted', 'audio/Randomize7.wav');
+
         // UI - Health hearts
         this.load.image('heart', 'heart.png');
         this.load.image('heart-half', 'heart-half.png');

@@ -15,12 +15,14 @@ const numKeys: Record<number, Array<number>> = {
 
 export class Masks {
     game: Game
+    player: Phaser.Physics.Arcade.Image
     gfx: Phaser.GameObjects.Graphics
     maskKeys: Record<number, Array<Phaser.Input.Keyboard.Key>> = {};
     mask: number = 0
 
     constructor(game: Game) {
         this.game = game
+        this.player = game.player
         this.gfx = game.make.graphics()
 
         this.setupInput()
@@ -88,6 +90,7 @@ export class Masks {
 
         this.game.enemies.getChildren().forEach((enemy) => {
             const enemySprite = enemy as Phaser.Physics.Arcade.Image;
+            const wasVisible = enemySprite.visible;
             const enemyInMask = this.isPointInTriangle(
                 enemySprite.x,
                 enemySprite.y,
@@ -96,6 +99,72 @@ export class Masks {
                 trianglePoints.p3
             );
             enemySprite.setVisible(enemyInMask);
+
+            // Play spotted sound when enemy becomes visible
+            if (enemyInMask && !wasVisible) {
+                this.game.enemySpottedSound.play();
+            }
+
+            // Check if enemy is behind the player (outside forward 180 degree arc)
+            const angleToEnemy = Math.atan2(
+                enemySprite.y - this.player.y,
+                enemySprite.x - this.player.x
+            );
+            // Player faces opposite of playerAngle (subtract PI to get forward direction)
+            const playerForward = this.game.playerAngle - Math.PI;
+            let angleDiff = angleToEnemy - playerForward;
+            // Normalize to -PI to PI
+            while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+            while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+            const isBehindPlayer = Math.abs(angleDiff) > Math.PI / 2;
+
+            // Freeze enemy when in player's view AND in front of player
+            if (enemyInMask && !isBehindPlayer) {
+                // Store current velocity before freezing (if not already frozen)
+                if (!enemySprite.getData('frozen')) {
+                    enemySprite.setData('savedVelocityX', enemySprite.body?.velocity.x || 0);
+                    enemySprite.setData('savedVelocityY', enemySprite.body?.velocity.y || 0);
+                    enemySprite.setData('frozen', true);
+                }
+                enemySprite.setVelocity(0, 0);
+            } else {
+                // Restore movement when out of view
+                if (enemySprite.getData('frozen')) {
+                    enemySprite.setData('frozen', false);
+                }
+
+                // Calculate distance to player
+                const distToPlayer = Phaser.Math.Distance.Between(
+                    enemySprite.x, enemySprite.y,
+                    this.player.x, this.player.y
+                );
+
+                const speed = enemySprite.getData('speed') || 60;
+                const chaseRange = 200;
+
+                // Only chase if within range, and 70% chance to chase vs 30% random
+                const inRange = distToPlayer <= chaseRange;
+                const shouldChase = inRange && Math.random() < 0.7;
+
+                if (shouldChase) {
+                    // Move towards player
+                    const angle = Math.atan2(
+                        this.player.y - enemySprite.y,
+                        this.player.x - enemySprite.x
+                    );
+                    enemySprite.setVelocity(
+                        Math.cos(angle) * speed,
+                        Math.sin(angle) * speed
+                    );
+                } else {
+                    // Random direction
+                    const randomAngle = Math.random() * Math.PI * 2;
+                    enemySprite.setVelocity(
+                        Math.cos(randomAngle) * speed,
+                        Math.sin(randomAngle) * speed
+                    );
+                }
+            }
         });
     }
 
