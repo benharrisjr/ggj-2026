@@ -17,11 +17,12 @@ export class Game extends Scene {
         this.camera.setZoom(1.0);
         this.camera.setBackgroundColor(0x00ff00);
 
-        // this.background = this.add.image(512, 384, 'background');
-        // this.background.setAlpha(0.5);
+        this.background = this.add.image(320, 176, 'level');
+        this.background.setScale(2.0);
 
         // Enable physics for the player
         this.player = this.physics.add.image(0, 0, 'player');
+        this.player.setScale(2.0);
         this.player.setCollideWorldBounds(true); // Prevent the player from leaving the screen
 
         // Create cursor keys for input
@@ -63,6 +64,9 @@ export class Game extends Scene {
 
         // Normalize diagonal movement
         this.player.body.velocity.normalize().scale(200);
-        this.maskGraphics.fillRect(this.player.x, this.player.y, 64, 64);
+        // Update mask to follow player (clear previous frame to prevent trails)
+        this.maskGraphics.clear();
+        this.maskGraphics.fillStyle(0xffffff);
+        this.maskGraphics.fillRect(this.player.x - 32, this.player.y - 32, 64, 64);
     }
 }
