@@ -5,11 +5,12 @@ export class Game extends Scene {
     background: Phaser.GameObjects.Image;
     player: Phaser.Physics.Arcade.Image; // Changed to Arcade.Image for physics
     cursors: Phaser.Types.Input.Keyboard.CursorKeys;
+    wasd: { up: Phaser.Input.Keyboard.Key; down: Phaser.Input.Keyboard.Key; left: Phaser.Input.Keyboard.Key; right: Phaser.Input.Keyboard.Key };
     maskGraphics: Phaser.GameObjects.Graphics;
 
     constructor() {
         super('Game');
-        
+
     }
 
     create() {
@@ -28,6 +29,14 @@ export class Game extends Scene {
         // Create cursor keys for input
         this.cursors = this.input.keyboard.createCursorKeys();
 
+        // Create WASD keys
+        this.wasd = {
+            up: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W),
+            down: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
+            left: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
+            right: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D)
+        };
+
         const overlay = this.add.graphics();
 
         overlay.fillStyle(0x000000, 0.8).fillRect(0, 0, 800, 600);
@@ -44,26 +53,87 @@ export class Game extends Scene {
         overlay.setMask(mask);
     }
 
+    handleInput(): { x: number; y: number } {
+        let x = 0;
+        let y = 0;
+
+        // Check keyboard input (Arrow keys)
+        if (this.cursors.left?.isDown) {
+            x -= 1;
+        }
+        if (this.cursors.right?.isDown) {
+            x += 1;
+        }
+        if (this.cursors.up?.isDown) {
+            y -= 1;
+        }
+        if (this.cursors.down?.isDown) {
+            y += 1;
+        }
+
+        // Check WASD keys
+        if (this.wasd.left.isDown) {
+            x -= 1;
+        }
+        if (this.wasd.right.isDown) {
+            x += 1;
+        }
+        if (this.wasd.up.isDown) {
+            y -= 1;
+        }
+        if (this.wasd.down.isDown) {
+            y += 1;
+        }
+
+        // Check gamepad input
+        const gamepad = this.input.gamepad?.getPad(0);
+        if (gamepad) {
+            // Left stick
+            const leftStickX = gamepad.leftStick.x;
+            const leftStickY = gamepad.leftStick.y;
+
+            // Apply deadzone (0.15)
+            if (Math.abs(leftStickX) > 0.15) {
+                x += leftStickX;
+            }
+            if (Math.abs(leftStickY) > 0.15) {
+                y += leftStickY;
+            }
+
+            // D-pad
+            if (gamepad.left) {
+                x -= 1;
+            }
+            if (gamepad.right) {
+                x += 1;
+            }
+            if (gamepad.up) {
+                y -= 1;
+            }
+            if (gamepad.down) {
+                y += 1;
+            }
+        }
+
+        return { x, y };
+    }
+
     update() {
         // Reset player velocity
         this.player.setVelocity(0);
 
-        // Horizontal movement
-        if (this.cursors.left?.isDown) {
-            this.player.setVelocityX(-200);
-        } else if (this.cursors.right?.isDown) {
-            this.player.setVelocityX(200);
+        // Get input from all sources
+        const input = this.handleInput();
+
+        // Apply movement
+        if (input.x !== 0 || input.y !== 0) {
+            // Set velocity based on input
+            this.player.setVelocity(input.x * 200, input.y * 200);
+
+            // Normalize diagonal movement to maintain consistent speed
+            this.player.body.velocity.normalize().scale(200);
         }
 
-        // Vertical movement
-        if (this.cursors.up?.isDown) {
-            this.player.setVelocityY(-200);
-        } else if (this.cursors.down?.isDown) {
-            this.player.setVelocityY(200);
-        }
-
-        // Normalize diagonal movement
-        this.player.body.velocity.normalize().scale(200);
         // Update mask to follow player (clear previous frame to prevent trails)
         this.maskGraphics.clear();
         this.maskGraphics.fillStyle(0xffffff);
