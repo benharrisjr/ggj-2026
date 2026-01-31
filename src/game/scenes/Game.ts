@@ -4,6 +4,8 @@ export class Game extends Scene {
     camera: Phaser.Cameras.Scene2D.Camera;
     background: Phaser.GameObjects.Image;
     player: Phaser.Physics.Arcade.Image; // Changed to Arcade.Image for physics
+    enemys: Phaser.Physics.Arcade.Group;
+    enemy: Phaser.Physics.Arcade.Image;
     cursors: Phaser.Types.Input.Keyboard.CursorKeys;
     wasd: { up: Phaser.Input.Keyboard.Key; down: Phaser.Input.Keyboard.Key; left: Phaser.Input.Keyboard.Key; right: Phaser.Input.Keyboard.Key };
     maskGraphics: Phaser.GameObjects.Graphics;
@@ -26,6 +28,10 @@ export class Game extends Scene {
         this.player = this.physics.add.image(0, 0, 'player');
         this.player.setScale(2.0);
         this.player.setCollideWorldBounds(true); // Prevent the player from leaving the screen
+
+        this.enemys = this.physics.add.group();
+        this.enemy = this.enemys.create(200, 200, 'enemy');
+        this.enemy.setScale(2.0);
 
         // Create cursor keys for input
         this.cursors = this.input.keyboard.createCursorKeys();

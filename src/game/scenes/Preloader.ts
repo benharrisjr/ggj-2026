@@ -34,6 +34,7 @@ export class Preloader extends Scene
 
         this.load.image('logo', 'logo.png');
         this.load.image('player', 'Tiles/tile_0084.png');
+        this.load.image('enemy', 'Tiles/tile_0108.png');
         this.load.image('level', 'Tiles.png')
     }
 
