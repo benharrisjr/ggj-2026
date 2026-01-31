@@ -13,6 +13,12 @@ const config: Phaser.Types.Core.GameConfig = {
     height: 180,
     parent: 'game-container',
     backgroundColor: '#028af8',
+    input: {
+        gamepad: true,
+        keyboard: true,
+        mouse: true,
+        touch: true,
+    },
     physics: {
         default: 'arcade',
         arcade: {

@@ -10,6 +10,7 @@ export class Game extends Scene {
     wasd: { up: Phaser.Input.Keyboard.Key; down: Phaser.Input.Keyboard.Key; left: Phaser.Input.Keyboard.Key; right: Phaser.Input.Keyboard.Key };
     maskGraphics: Phaser.GameObjects.Graphics;
     playerAngle: number = 0; // Start facing up (after correction)
+    gamepad: Phaser.Input.Gamepad.Gamepad;
 
     constructor() {
         super('Game');
@@ -61,7 +62,7 @@ export class Game extends Scene {
         overlay.setMask(mask);
     }
 
-    drawRotatedTriangle(x: number, y: number, angle: number, size: number = 40) {
+    getTrianglePoints(x: number, y: number, angle: number, size: number = 40): { p1: { x: number; y: number }; p2: { x: number; y: number }; p3: { x: number; y: number } } {
         // Calculate the three points of the triangle rotated by the given angle
         // Base triangle points before rotation (pointing up):
         // Top: (0, -size)
@@ -72,16 +73,44 @@ export class Game extends Scene {
         const sin = Math.sin(angle);
 
         // Rotate and translate each point
-        const p1x = x + (0 * cos - (-size) * sin);
-        const p1y = y + (0 * sin + (-size) * cos);
+        const p1 = {
+            x: x + (0 * cos - (-size) * sin),
+            y: y + (0 * sin + (-size) * cos)
+        };
 
-        const p2x = x + ((-size) * cos - size * sin);
-        const p2y = y + ((-size) * sin + size * cos);
+        const p2 = {
+            x: x + ((-size) * cos - size * sin),
+            y: y + ((-size) * sin + size * cos)
+        };
 
-        const p3x = x + (size * cos - size * sin);
-        const p3y = y + (size * sin + size * cos);
+        const p3 = {
+            x: x + (size * cos - size * sin),
+            y: y + (size * sin + size * cos)
+        };
 
-        this.maskGraphics.fillTriangle(p1x, p1y, p2x, p2y, p3x, p3y);
+        return { p1, p2, p3 };
+    }
+
+    drawRotatedTriangle(x: number, y: number, angle: number, size: number = 40) {
+        const { p1, p2, p3 } = this.getTrianglePoints(x, y, angle, size);
+        this.maskGraphics.fillTriangle(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
+    }
+
+    isPointInTriangle(px: number, py: number, p1: { x: number; y: number }, p2: { x: number; y: number }, p3: { x: number; y: number }): boolean {
+        // Using barycentric coordinates to check if point is inside triangle
+        const sign = (p1: { x: number; y: number }, p2: { x: number; y: number }, p3: { x: number; y: number }) => {
+            return (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
+        };
+
+        const point = { x: px, y: py };
+        const d1 = sign(point, p1, p2);
+        const d2 = sign(point, p2, p3);
+        const d3 = sign(point, p3, p1);
+
+        const hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+        const hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+
+        return !(hasNeg && hasPos);
     }
 
     handleInput(): { x: number; y: number } {
@@ -181,6 +210,22 @@ export class Game extends Scene {
         this.maskGraphics.clear();
         this.maskGraphics.fillStyle(0xffffff);
         // Draw rotated triangle centered on player
-        this.drawRotatedTriangle(this.player.x, this.player.y, this.playerAngle);
+        this.drawRotatedTriangle(this.player.x, this.player.y, this.playerAngle, 80);
+
+        // Check if enemy is inside the mask triangle
+        const trianglePoints = this.getTrianglePoints(this.player.x, this.player.y, this.playerAngle, 80);
+        const enemyInMask = this.isPointInTriangle(
+            this.enemy.x,
+            this.enemy.y,
+            trianglePoints.p1,
+            trianglePoints.p2,
+            trianglePoints.p3
+        );
+
+        if (enemyInMask) {
+            console.log('Enemy is inside the mask!');
+        }
+
+        this.enemy.setVisible(enemyInMask);
     }
 }
