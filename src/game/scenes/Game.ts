@@ -163,14 +163,14 @@ export class Game extends Scene {
         this.createHealthUI();
 
         // Create cursor keys for input
-        this.cursors = this.input.keyboard.createCursorKeys();
+        this.cursors = this.input.keyboard!.createCursorKeys();
 
         // Create WASD keys
         this.wasd = {
-            up: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W),
-            down: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
-            left: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
-            right: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D)
+            up: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.W),
+            down: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.S),
+            left: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.A),
+            right: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.D)
         };
 
         // Gamepad connection handling
@@ -439,6 +439,13 @@ export class Game extends Scene {
                 // Empty heart
                 heart.setTexture('heart-empty');
             }
+        }
+    }
+
+    setMaskAbility() {
+        // speed mask
+        if (this.masks.mask === 1) {
+            // set ability to enum to dash
         }
     }
 
@@ -779,7 +786,7 @@ export class Game extends Scene {
             this.player.setVelocity(input.x * 200, input.y * 200);
 
             // Normalize diagonal movement to maintain consistent speed
-            this.player.body.velocity.normalize().scale(200);
+            this.player.body!.velocity.normalize().scale(200);
 
             // Update player angle based on movement direction
             // Add PI/2 to correct the orientation, then add PI to flip 180 degrees
