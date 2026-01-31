@@ -63,7 +63,7 @@ export class Game extends Scene {
     wasd: { up: Phaser.Input.Keyboard.Key; down: Phaser.Input.Keyboard.Key; left: Phaser.Input.Keyboard.Key; right: Phaser.Input.Keyboard.Key };
     maskGraphics: Phaser.GameObjects.Graphics;
     playerAngle: number = 0; // Start facing up (after correction)
-    gamepad: Phaser.Input.Gamepad.Gamepad;
+    gamepad: Phaser.Input.Gamepad.Gamepad | null = null;
     currentLevel: number = 0;
     previousLevel: number = -1;
     isTransitioning: boolean = false;
@@ -82,6 +82,17 @@ export class Game extends Scene {
     heartSprites: Phaser.GameObjects.Image[] = [];
     isInvincible: boolean = false;
     isKnockedBack: boolean = false;
+
+    // Touch controls
+    touchButtons: {
+        up?: Phaser.GameObjects.Image;
+        down?: Phaser.GameObjects.Image;
+        left?: Phaser.GameObjects.Image;
+        right?: Phaser.GameObjects.Image;
+    } = {};
+    touchInput = { up: false, down: false, left: false, right: false };
+
+    gamepadMessage: Phaser.GameObjects.Text;
 
     masks: Masks
 
@@ -161,6 +172,45 @@ export class Game extends Scene {
             left: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
             right: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D)
         };
+
+        // Gamepad connection handling
+        if (this.input.gamepad) {
+            // Check if gamepad is already connected
+            if (this.input.gamepad.total > 0) {
+                this.gamepad = this.input.gamepad.getPad(0);
+                console.log('Gamepad already connected:', this.gamepad.id);
+            }
+
+            // Listen for gamepad connection
+            this.input.gamepad.on('connected', (pad: Phaser.Input.Gamepad.Gamepad) => {
+                console.log('Gamepad connected:', pad.id);
+
+                this.gamepadMessage = this.add.text(90, 320, `Gamepad connected: ${pad.id}`);
+                this.gamepadMessage.setScrollFactor(0);
+                this.gamepadMessage.setDepth(999);
+                this.time.addEvent({
+                    delay: 5000,
+                    callback: () => {
+                        this.gamepadMessage.destroy();
+                    },
+                    loop: false
+                });
+                this.gamepad = pad;
+            });
+
+            // Listen for gamepad disconnection
+            this.input.gamepad.on('disconnected', (pad: Phaser.Input.Gamepad.Gamepad) => {
+                console.log('Gamepad disconnected:', pad.id);
+                if (this.gamepad === pad) {
+                    this.gamepad = null;
+                }
+            });
+        }
+
+        // Create touch controls if touch is available
+        if (this.sys.game.device.input.touch) {
+            this.createTouchControls();
+        }
 
         this.masks = new Masks(this)
 
@@ -392,6 +442,73 @@ export class Game extends Scene {
         }
     }
 
+    createTouchControls() {
+        const buttonSize = 64;
+        const buttonSpacing = 16;
+        const startX = 32;
+        const startY = this.cameras.main.height - 140;
+
+        // Create buttons in a d-pad layout
+        // Up button (top center)
+        this.touchButtons.up = this.add.image(
+            startX + buttonSize + buttonSpacing,
+            startY - buttonSpacing,
+            'btn-up'
+        );
+
+        // Down button (bottom center)
+        this.touchButtons.down = this.add.image(
+            startX + buttonSize + buttonSpacing,
+            startY + buttonSize + buttonSpacing*2,
+            'btn-down'
+        );
+
+        // Left button (middle left)
+        this.touchButtons.left = this.add.image(
+            startX,
+            startY + (buttonSize + buttonSpacing) / 2,
+            'btn-left'
+        );
+
+        // Right button (middle right)
+        this.touchButtons.right = this.add.image(
+            startX + (buttonSize + buttonSpacing) * 2,
+            startY + (buttonSize + buttonSpacing) / 2,
+            'btn-right'
+        );
+
+        // Configure all buttons
+        Object.entries(this.touchButtons).forEach(([direction, button]) => {
+            if (!button) return;
+
+            button.setScrollFactor(0); // Fixed to camera
+            button.setDepth(998); // Above game, below health UI
+            button.setScale(3.0);
+            button.setAlpha(0.7);
+            button.setInteractive();
+
+            // Pointer down - activate
+            button.on('pointerdown', () => {
+                this.touchInput[direction as keyof typeof this.touchInput] = true;
+                button.setAlpha(1.0);
+            });
+
+            // Pointer up - deactivate
+            button.on('pointerup', () => {
+                this.touchInput[direction as keyof typeof this.touchInput] = false;
+                button.setAlpha(0.7);
+            });
+
+            // Pointer out - deactivate (for when finger slides off)
+            button.on('pointerout', () => {
+                this.touchInput[direction as keyof typeof this.touchInput] = false;
+                button.setAlpha(0.7);
+            });
+        });
+
+        console.log('Touch controls created');
+    }
+
     onEnemyCollision(_player: Phaser.GameObjects.GameObject, enemy: Phaser.GameObjects.GameObject) {
         // Don't take damage if invincible or transitioning
         if (this.isInvincible || this.isTransitioning) return;
@@ -596,12 +713,11 @@ export class Game extends Scene {
             y += 1;
         }
 
-        // Check gamepad input
-        const gamepad = this.input.gamepad?.getPad(0);
-        if (gamepad) {
+        // Check gamepad input (using stored reference from connection event)
+        if (this.gamepad && this.gamepad.connected) {
             // Left stick
-            const leftStickX = gamepad.leftStick.x;
-            const leftStickY = gamepad.leftStick.y;
+            const leftStickX = this.gamepad.leftStick.x;
+            const leftStickY = this.gamepad.leftStick.y;
 
             // Apply deadzone (0.15)
             if (Math.abs(leftStickX) > 0.15) {
@@ -612,18 +728,32 @@ export class Game extends Scene {
             }
 
             // D-pad
-            if (gamepad.left) {
+            if (this.gamepad.left) {
                 x -= 1;
             }
-            if (gamepad.right) {
+            if (this.gamepad.right) {
                 x += 1;
             }
-            if (gamepad.up) {
+            if (this.gamepad.up) {
                 y -= 1;
             }
-            if (gamepad.down) {
+            if (this.gamepad.down) {
                 y += 1;
             }
+        }
+
+        // Check touch controls
+        if (this.touchInput.left) {
+            x -= 1;
+        }
+        if (this.touchInput.right) {
+            x += 1;
+        }
+        if (this.touchInput.up) {
+            y -= 1;
+        }
+        if (this.touchInput.down) {
+            y += 1;
         }
 
         return { x, y };
