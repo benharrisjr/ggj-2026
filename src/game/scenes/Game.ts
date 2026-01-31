@@ -75,6 +75,7 @@ export class Game extends Scene {
     doorCloseSound: Phaser.Sound.BaseSound;
     playerHurtSound: Phaser.Sound.BaseSound;
     enemySpottedSound: Phaser.Sound.BaseSound;
+    fireShootSound: Phaser.Sound.BaseSound;
     transitionOverlay: Phaser.GameObjects.Graphics;
 
     // Health system
@@ -167,6 +168,7 @@ export class Game extends Scene {
         // Combat sounds
         this.playerHurtSound = this.sound.add('playerHurt', { volume: 0.5 });
         this.enemySpottedSound = this.sound.add('enemySpotted', { volume: 0.3 });
+        this.fireShootSound = this.sound.add('fireShoot', { volume: 0.5 });
 
         // Create enemies group and spawn at all enemy spawn points
         this.enemies = this.physics.add.group();
@@ -670,10 +672,10 @@ export class Game extends Scene {
                     repeat: 0,
                     onComplete: () => { this.player.setAlpha(1); }
                 });
-                if (this.enemySpottedSound) this.enemySpottedSound.play();
+                if (this.fireShootSound) this.fireShootSound.play();
                 // spawn a fire projectile at the player and launch it forward
                 const px = this.player.x;
-                const py = this.player.y;
+                const py = this.player.y; 
 
                 // determine direction (fallback to up)
                 let dir = new Phaser.Math.Vector2(this.lastMoveX, this.lastMoveY);
@@ -689,7 +691,7 @@ export class Game extends Scene {
                 // Rotate projectile to face its travel direction. If your sprite art is not aligned
                 // to the right (0 radians), add an offset like +Math.PI/2 or -Math.PI/2 as needed.
                 fire.setRotation(dir.angle() + Math.PI / 2);
-                fire.setScale(2.0);
+                fire.setScale(1.0);
                 fire.body.setAllowGravity(false);
                 fire.setVelocity(dir.x * speed, dir.y * speed);
                 fire.setData('hit', false);
@@ -744,11 +746,7 @@ export class Game extends Scene {
             }
             case Ability.Interact: {
                 console.log('[ABILITY] Executing Interact');
-                // Try to interact with doors (call onDoorCollision if overlapping)
-                this.physics.overlap(this.player, this.doors, ((p: any, door: any) => {
-                    // Reuse the collision handler to perform the transition
-                    this.onDoorCollision(p, door);
-                }) as any, undefined, this);
+                // Placeholder for interact ability
                 console.log('Used Interact');
                 break;
             }
