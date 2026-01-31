@@ -161,6 +161,14 @@ export class Game extends Scene {
             // Update player angle based on movement direction
             // Add PI/2 to correct the orientation, then add PI to flip 180 degrees
             this.playerAngle = Math.atan2(input.y, input.x) + Math.PI / 2 + Math.PI;
+
+            // Mirror sprite horizontally based on horizontal input
+            const deadzone = 0.01;
+            if (input.x < -deadzone) {
+                this.player.setFlipX(true);
+            } else if (input.x > deadzone) {
+                this.player.setFlipX(false);
+            }
         }
 
         // Update mask to follow player (clear previous frame to prevent trails)
