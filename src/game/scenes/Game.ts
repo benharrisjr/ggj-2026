@@ -105,6 +105,7 @@ export class Game extends Scene {
     abilityLastUsed: Record<number, number> = {};
     abilityCooldowns: Record<number, number> = {};
     spaceKey: Phaser.Input.Keyboard.Key;
+    escapeKey: Phaser.Input.Keyboard.Key;
     previousGamepadAState: boolean = false;
     actionButtonPressed: boolean = false;
     // Last movement direction (unit vector) used for dash fallback
@@ -112,6 +113,8 @@ export class Game extends Scene {
     lastMoveY: number = -1;
     // Dashing state to prevent update from overwriting dash velocity
     isDashing: boolean = false;
+    // Debug mode toggle
+    debugMode: boolean = true;
 
     constructor() {
         super('Game');
@@ -185,6 +188,9 @@ export class Game extends Scene {
 
     // Space key for action
     this.spaceKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+
+    // Escape key for debug toggle
+    this.escapeKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
 
         // Create WASD keys
         this.wasd = {
@@ -1021,6 +1027,15 @@ export class Game extends Scene {
             // Keep positioned top-right in case camera size changes
             const pad = 8;
             this.maskValueText.setPosition(this.camera.width - pad, pad);
+        }
+
+        // Handle debug mode toggle with Escape key
+        if (Phaser.Input.Keyboard.JustDown(this.escapeKey)) {
+            this.debugMode = !this.debugMode;
+            if (this.physics.world.debugGraphic) {
+                this.physics.world.debugGraphic.visible = this.debugMode;
+            }
+            console.log('[DEBUG] Debug mode:', this.debugMode ? 'ON' : 'OFF');
         }
 
         // Handle action input: keyboard (space) and gamepad A (rising edge)
