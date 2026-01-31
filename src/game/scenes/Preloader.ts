@@ -43,6 +43,15 @@ export class Preloader extends Scene
         // Level 1 assets
         this.load.image('level_1', 'Level_1/Tiles.png');
         this.load.image('intgrid_1', 'Level_1/IntGrid-int.png');
+
+        // Audio - load all footstep variations
+        for (let i = 1; i <= 9; i++) {
+            this.load.audio(`footstep0${i}`, `audio/footstep0${i}.ogg`);
+        }
+
+        // Door sounds
+        this.load.audio('doorOpen', 'audio/doorOpen_1.ogg');
+        this.load.audio('doorClose', 'audio/doorClose_1.ogg');
     }
 
     create ()
