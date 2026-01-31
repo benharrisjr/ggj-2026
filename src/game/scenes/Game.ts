@@ -32,10 +32,12 @@ export class Game extends Scene {
     currentLevel: number = 0;
     previousLevel: number = -1;
     isTransitioning: boolean = false;
+    justSpawnedOnDoor: boolean = false;
     footstepSounds: Phaser.Sound.BaseSound[];
     isPlayingFootstep: boolean = false;
     doorOpenSound: Phaser.Sound.BaseSound;
     doorCloseSound: Phaser.Sound.BaseSound;
+    transitionOverlay: Phaser.GameObjects.Graphics;
 
     constructor() {
         super('Game');
@@ -113,6 +115,11 @@ export class Game extends Scene {
         const mask = new Phaser.Display.Masks.BitmapMask(this, this.maskGraphics);
         mask.invertAlpha = true;
         overlay.setMask(mask);
+
+        // Create transition overlay (separate from fog-of-war mask)
+        this.transitionOverlay = this.add.graphics();
+        this.transitionOverlay.setDepth(1000); // Render above everything
+        this.transitionOverlay.setAlpha(0); // Start invisible
     }
 
     setupLevelBounds() {
@@ -133,10 +140,6 @@ export class Game extends Scene {
         const levelWidth = this.background.displayWidth;
         const levelHeight = this.background.displayHeight;
         const offset = 48; // Spawn offset distance
-
-        // Calculate door position relative to level center
-        const centerX = levelWidth / 2;
-        const centerY = levelHeight / 2;
 
         // Calculate distance from each edge
         const distToLeft = doorX;
@@ -241,6 +244,9 @@ export class Game extends Scene {
     }
 
     onDoorCollision(_player: Phaser.GameObjects.GameObject, door: Phaser.GameObjects.GameObject) {
+        // Ignore door collisions if player just spawned on a door
+        if (this.justSpawnedOnDoor) return;
+
         // Prevent multiple transitions
         if (this.isTransitioning) return;
         this.isTransitioning = true;
@@ -249,7 +255,42 @@ export class Game extends Scene {
         console.log(`Door collision! Going from level ${this.currentLevel} to level ${targetLevel}`);
 
         this.doorOpenSound.play();
-        this.loadLevel(targetLevel);
+
+        // Draw black rectangle for fade overlay
+        this.transitionOverlay.clear();
+        this.transitionOverlay.fillStyle(0x000000, 1.0);
+        this.transitionOverlay.fillRect(0, 0, 2000, 2000);
+
+        // Fade to black (200ms)
+        this.tweens.add({
+            targets: this.transitionOverlay,
+            alpha: 1.0,
+            duration: 200,
+            ease: 'Power2',
+            onComplete: () => {
+                // Execute level transition during black screen
+                this.loadLevel(targetLevel);
+
+                // Camera snap for extra safety
+                const spawnDoor = this.doorDataList.find(d => d.targetLevel === this.previousLevel);
+                if (spawnDoor) {
+                    const spawnOffset = this.calculateDoorSpawnOffset(spawnDoor.x, spawnDoor.y);
+                    this.camera.centerOn(spawnDoor.x + spawnOffset.x, spawnDoor.y + spawnOffset.y);
+                }
+
+                // Fade back from black (200ms)
+                this.tweens.add({
+                    targets: this.transitionOverlay,
+                    alpha: 0,
+                    duration: 200,
+                    ease: 'Power2',
+                    onComplete: () => {
+                        // Transition complete, allow next door interaction
+                        this.isTransitioning = false;
+                    }
+                });
+            }
+        });
     }
 
     loadLevel(levelIndex: number) {
@@ -281,20 +322,22 @@ export class Game extends Scene {
             const spawnX = spawnDoor.x + spawnOffset.x;
             const spawnY = spawnDoor.y + spawnOffset.y;
             this.player.setPosition(spawnX, spawnY);
+            // Snap camera to player position (prevents pan if fade fails)
+            this.camera.centerOn(spawnX, spawnY);
             console.log(`Spawning at door to level ${this.previousLevel}:`, spawnX, spawnY);
         } else {
             // Fallback spawn position if no matching door found
             this.player.setPosition(100, 100);
+            // Snap camera to player position (prevents pan if fade fails)
+            this.camera.centerOn(100, 100);
             console.log('No matching door found, spawning at default position');
         }
 
         // Play door close sound
         this.doorCloseSound.play();
 
-        // Allow transitions again after a short delay
-        this.time.delayedCall(500, () => {
-            this.isTransitioning = false;
-        });
+        // Mark that player just spawned (may be on a door)
+        this.justSpawnedOnDoor = true;
     }
 
     getTrianglePoints(x: number, y: number, angle: number, size: number = 40): { p1: { x: number; y: number }; p2: { x: number; y: number }; p3: { x: number; y: number } } {
@@ -467,5 +510,13 @@ export class Game extends Scene {
         );
 
         this.enemy.setVisible(enemyInMask);
+
+        // Reset spawn flag if player is no longer overlapping any doors
+        if (this.justSpawnedOnDoor) {
+            const overlappingAnyDoor = this.physics.overlap(this.player, this.doors);
+            if (!overlappingAnyDoor) {
+                this.justSpawnedOnDoor = false;
+            }
+        }
     }
 }
