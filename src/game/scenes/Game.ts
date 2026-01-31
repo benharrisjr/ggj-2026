@@ -47,6 +47,8 @@ export class Game extends Scene {
     isPlayingFootstep: boolean = false;
     doorOpenSound: Phaser.Sound.BaseSound;
     doorCloseSound: Phaser.Sound.BaseSound;
+    playerHurtSound: Phaser.Sound.BaseSound;
+    enemySpottedSound: Phaser.Sound.BaseSound;
     transitionOverlay: Phaser.GameObjects.Graphics;
 
     // Health system
@@ -54,6 +56,7 @@ export class Game extends Scene {
     playerMaxHealth: number = 6;
     heartSprites: Phaser.GameObjects.Image[] = [];
     isInvincible: boolean = false;
+    isKnockedBack: boolean = false;
 
     constructor() {
         super('Game');
@@ -63,7 +66,7 @@ export class Game extends Scene {
     create() {
         this.camera = this.cameras.main;
         this.camera.setZoom(1.0);
-        this.camera.setBackgroundColor(0x00ff00);
+        this.camera.setBackgroundColor(0x000000);
 
         // Create background at origin (0,0)
         this.background = this.add.image(0, 0, `level_${this.currentLevel}`);
@@ -81,6 +84,9 @@ export class Game extends Scene {
         this.player = this.physics.add.image(playerStart.x, playerStart.y, 'player');
         this.player.setScale(2.0);
         this.player.setCollideWorldBounds(true);
+
+        // Smaller hitbox for better game feel (28x28, centered on 32x32 sprite)
+        this.player.body?.setSize(14, 14);
 
         // Camera follows player
         this.camera.startFollow(this.player, true, 0.1, 0.1);
@@ -104,6 +110,10 @@ export class Game extends Scene {
         // Door sounds
         this.doorOpenSound = this.sound.add('doorOpen', { volume: 0.5 });
         this.doorCloseSound = this.sound.add('doorClose', { volume: 0.5 });
+
+        // Combat sounds
+        this.playerHurtSound = this.sound.add('playerHurt', { volume: 0.5 });
+        this.enemySpottedSound = this.sound.add('enemySpotted', { volume: 0.3 });
 
         // Create enemies group and spawn at all enemy spawn points
         this.enemies = this.physics.add.group();
@@ -291,13 +301,29 @@ export class Game extends Scene {
         this.enemies.clear(true, true);
 
         const enemySprites = ['enemy', 'enemy2', 'enemy3'];
+        const enemySpeed = 60;
 
         // Spawn enemy at each spawn point with random sprite
         for (const spawn of this.enemySpawnPoints) {
             const randomSprite = enemySprites[Math.floor(Math.random() * enemySprites.length)];
             const enemy = this.enemies.create(spawn.x, spawn.y, randomSprite) as Phaser.Physics.Arcade.Image;
             enemy.setScale(2.0);
+            enemy.setCollideWorldBounds(true);
+            enemy.setBounce(1, 1);
+
+            // Set random initial direction
+            const angle = Math.random() * Math.PI * 2;
+            enemy.setVelocity(
+                Math.cos(angle) * enemySpeed,
+                Math.sin(angle) * enemySpeed
+            );
+
+            // Store the base speed for later
+            enemy.setData('speed', enemySpeed);
         }
+
+        // Add collision between enemies and walls
+        this.physics.add.collider(this.enemies, this.walls);
 
         console.log('Spawned', this.enemySpawnPoints.length, 'enemies');
     }
@@ -351,13 +377,37 @@ export class Game extends Scene {
         }
     }
 
-    onEnemyCollision() {
+    onEnemyCollision(_player: Phaser.GameObjects.GameObject, enemy: Phaser.GameObjects.GameObject) {
         // Don't take damage if invincible or transitioning
         if (this.isInvincible || this.isTransitioning) return;
 
         // Take damage
         this.playerHealth -= 1;
         console.log('Player hit! Health:', this.playerHealth);
+
+        // Play hurt sound
+        this.playerHurtSound.play();
+
+        // Screen shake
+        this.camera.shake(150, 0.01);
+
+        // Knockback - push player away from enemy
+        const enemySprite = enemy as Phaser.Physics.Arcade.Image;
+        const knockbackForce = 300;
+        const angle = Math.atan2(
+            this.player.y - enemySprite.y,
+            this.player.x - enemySprite.x
+        );
+        this.player.setVelocity(
+            Math.cos(angle) * knockbackForce,
+            Math.sin(angle) * knockbackForce
+        );
+        this.isKnockedBack = true;
+
+        // End knockback after a short duration
+        this.time.delayedCall(200, () => {
+            this.isKnockedBack = false;
+        });
 
         // Update health display
         this.updateHealthDisplay();
@@ -616,6 +666,13 @@ export class Game extends Scene {
     }
 
     update() {
+        // Skip input handling during knockback
+        if (this.isKnockedBack) {
+            // Still update mask and enemy visibility during knockback
+            this.updateMaskAndEnemies();
+            return;
+        }
+
         // Reset player velocity
         this.player.setVelocity(0);
 
@@ -652,6 +709,18 @@ export class Game extends Scene {
             }
         }
 
+        this.updateMaskAndEnemies();
+
+        // Reset spawn flag if player is no longer overlapping any doors
+        if (this.justSpawnedOnDoor) {
+            const overlappingAnyDoor = this.physics.overlap(this.player, this.doors);
+            if (!overlappingAnyDoor) {
+                this.justSpawnedOnDoor = false;
+            }
+        }
+    }
+
+    updateMaskAndEnemies() {
         // Update mask to follow player (clear previous frame to prevent trails)
         this.maskGraphics.clear();
         this.maskGraphics.fillStyle(0xffffff);
@@ -662,6 +731,7 @@ export class Game extends Scene {
         const trianglePoints = this.getTrianglePoints(this.player.x, this.player.y, this.playerAngle, 80);
         this.enemies.getChildren().forEach((enemy) => {
             const enemySprite = enemy as Phaser.Physics.Arcade.Image;
+            const wasVisible = enemySprite.visible;
             const enemyInMask = this.isPointInTriangle(
                 enemySprite.x,
                 enemySprite.y,
@@ -670,14 +740,59 @@ export class Game extends Scene {
                 trianglePoints.p3
             );
             enemySprite.setVisible(enemyInMask);
-        });
 
-        // Reset spawn flag if player is no longer overlapping any doors
-        if (this.justSpawnedOnDoor) {
-            const overlappingAnyDoor = this.physics.overlap(this.player, this.doors);
-            if (!overlappingAnyDoor) {
-                this.justSpawnedOnDoor = false;
+            // Play spotted sound when enemy becomes visible
+            if (enemyInMask && !wasVisible) {
+                this.enemySpottedSound.play();
             }
-        }
+
+            // Freeze enemy when in player's view, unfreeze when not
+            if (enemyInMask) {
+                // Store current velocity before freezing (if not already frozen)
+                if (!enemySprite.getData('frozen')) {
+                    enemySprite.setData('savedVelocityX', enemySprite.body?.velocity.x || 0);
+                    enemySprite.setData('savedVelocityY', enemySprite.body?.velocity.y || 0);
+                    enemySprite.setData('frozen', true);
+                }
+                enemySprite.setVelocity(0, 0);
+            } else {
+                // Restore movement when out of view
+                if (enemySprite.getData('frozen')) {
+                    enemySprite.setData('frozen', false);
+                }
+
+                // Calculate distance to player
+                const distToPlayer = Phaser.Math.Distance.Between(
+                    enemySprite.x, enemySprite.y,
+                    this.player.x, this.player.y
+                );
+
+                const speed = enemySprite.getData('speed') || 60;
+                const chaseRange = 200;
+
+                // Only chase if within range, and 70% chance to chase vs 30% random
+                const inRange = distToPlayer <= chaseRange;
+                const shouldChase = inRange && Math.random() < 0.7;
+
+                if (shouldChase) {
+                    // Move towards player
+                    const angle = Math.atan2(
+                        this.player.y - enemySprite.y,
+                        this.player.x - enemySprite.x
+                    );
+                    enemySprite.setVelocity(
+                        Math.cos(angle) * speed,
+                        Math.sin(angle) * speed
+                    );
+                } else {
+                    // Random direction
+                    const randomAngle = Math.random() * Math.PI * 2;
+                    enemySprite.setVelocity(
+                        Math.cos(randomAngle) * speed,
+                        Math.sin(randomAngle) * speed
+                    );
+                }
+            }
+        });
     }
 }
