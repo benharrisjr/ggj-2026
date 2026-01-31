@@ -34,6 +34,9 @@ export class Preloader extends Scene
 
         this.load.image('logo', 'logo.png');
         this.load.image('player', 'Tiles/tile_0084.png');
+        this.load.image('player-back', 'Sprite-Ninja-Back.png');
+        this.load.image('player-front', 'Sprite-Ninja-Front.png');
+        this.load.image('player-profile', 'Sprite-Ninja-Profile.png');
         this.load.image('enemy', 'Tiles/tile_0108.png');
         this.load.image('enemy2', 'kpop-demon.png');
         this.load.image('enemy3', 'bubbly-sheep.png');

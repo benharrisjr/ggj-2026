@@ -107,7 +107,7 @@ export class Game extends Scene {
 
         // Enable physics for the player at spawn point
         const playerStart = this.playerSpawnPoint || { x: 200, y: 250 };
-        this.player = this.physics.add.image(playerStart.x, playerStart.y, 'player');
+        this.player = this.physics.add.image(playerStart.x, playerStart.y, 'player-front');
         this.player.setScale(2.0);
         this.player.setCollideWorldBounds(true);
 
@@ -655,12 +655,21 @@ export class Game extends Scene {
             // Add PI/2 to correct the orientation, then add PI to flip 180 degrees
             this.playerAngle = Math.atan2(input.y, input.x) + Math.PI / 2 + Math.PI;
 
-            // Mirror sprite horizontally based on horizontal input
+            // Update player sprite based on movement direction
             const deadzone = 0.01;
-            if (input.x < -deadzone) {
-                this.player.setFlipX(true);
-            } else if (input.x > deadzone) {
+            if (input.y < -deadzone) {
+                // Moving up - show back
+                this.player.setTexture('player-back');
                 this.player.setFlipX(false);
+            } else if (input.y > deadzone) {
+                // Moving down - show front
+                this.player.setTexture('player-front');
+                this.player.setFlipX(false);
+            } else if (Math.abs(input.x) > deadzone) {
+                // Moving horizontally - show profile
+                this.player.setTexture('player-profile');
+                // Flip sprite based on direction
+                this.player.setFlipX(input.x > 0);
             }
 
             // Play random footstep sound while moving
