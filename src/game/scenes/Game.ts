@@ -6,6 +6,7 @@ export class Game extends Scene {
     player: Phaser.Physics.Arcade.Image; // Changed to Arcade.Image for physics
     enemys: Phaser.Physics.Arcade.Group;
     enemy: Phaser.Physics.Arcade.Image;
+    walls: Phaser.Physics.Arcade.StaticGroup;
     cursors: Phaser.Types.Input.Keyboard.CursorKeys;
     wasd: { up: Phaser.Input.Keyboard.Key; down: Phaser.Input.Keyboard.Key; left: Phaser.Input.Keyboard.Key; right: Phaser.Input.Keyboard.Key };
     maskGraphics: Phaser.GameObjects.Graphics;
@@ -25,10 +26,16 @@ export class Game extends Scene {
         this.background = this.add.image(320, 176, 'level');
         this.background.setScale(2.0);
 
+        // Create collision layer from IntGrid
+        this.createCollisionLayer();
+
         // Enable physics for the player
-        this.player = this.physics.add.image(0, 0, 'player');
+        this.player = this.physics.add.image(200, 250, 'player');
         this.player.setScale(2.0);
         this.player.setCollideWorldBounds(true); // Prevent the player from leaving the screen
+
+        // Add collision between player and walls
+        this.physics.add.collider(this.player, this.walls);
 
         this.enemys = this.physics.add.group();
         this.enemy = this.enemys.create(200, 200, 'enemy');
@@ -60,6 +67,57 @@ export class Game extends Scene {
         mask.invertAlpha = true;
 
         overlay.setMask(mask);
+    }
+
+    createCollisionLayer() {
+        this.walls = this.physics.add.staticGroup();
+
+        // IntGrid is 20x11, each cell represents 16x16 pixels in Tiles.png
+        // With 2.0 scale, each cell is 32x32 in game world
+        const tileSize = 32;
+
+        // Get the intgrid texture and read pixel data
+        const texture = this.textures.get('intgrid');
+        const source = texture.getSourceImage() as HTMLImageElement;
+
+        console.log('IntGrid source size:', source.width, source.height);
+
+        // Create a canvas to read pixel data
+        const canvas = document.createElement('canvas');
+        canvas.width = source.width;
+        canvas.height = source.height;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(source, 0, 0);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const pixels = imageData.data;
+
+        let wallCount = 0;
+
+        // Loop through each pixel in the IntGrid
+        for (let y = 0; y < source.height; y++) {
+            for (let x = 0; x < source.width; x++) {
+                const pixelIndex = (y * source.width + x) * 4;
+                const r = pixels[pixelIndex];
+                const g = pixels[pixelIndex + 1];
+                const b = pixels[pixelIndex + 2];
+                const a = pixels[pixelIndex + 3];
+
+                // Check if pixel is black (collision tile) - non-transparent
+                if (r < 50 && g < 50 && b < 50 && a > 200) {
+                    // Create collision rectangle at this position
+                    // Position is center of tile, offset from level origin (0,0)
+                    const worldX = x * tileSize + tileSize / 2;
+                    const worldY = y * tileSize + tileSize / 2;
+
+                    const wall = this.add.rectangle(worldX, worldY, tileSize, tileSize);
+                    this.physics.add.existing(wall, true); // true = static body
+                    this.walls.add(wall);
+                    wallCount++;
+                }
+            }
+        }
+
+        console.log('Created walls:', wallCount);
     }
 
     getTrianglePoints(x: number, y: number, angle: number, size: number = 40): { p1: { x: number; y: number }; p2: { x: number; y: number }; p3: { x: number; y: number } } {
@@ -221,10 +279,6 @@ export class Game extends Scene {
             trianglePoints.p2,
             trianglePoints.p3
         );
-
-        if (enemyInMask) {
-            console.log('Enemy is inside the mask!');
-        }
 
         this.enemy.setVisible(enemyInMask);
     }
