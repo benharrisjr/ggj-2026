@@ -61,6 +61,7 @@ export class Preloader extends Scene
         // Combat sounds
         this.load.audio('playerHurt', 'audio/Hit_Hurt23.wav');
         this.load.audio('enemySpotted', 'audio/Randomize7.wav');
+        this.load.audio('fireShoot', 'audio/Explosion13.wav');
 
         // UI - Health hearts
         this.load.image('heart', 'heart.png');
@@ -72,6 +73,12 @@ export class Preloader extends Scene
         this.load.image('btn-down', 'down.png');
         this.load.image('btn-left', 'left.png');
         this.load.image('btn-right', 'right.png');
+
+        // attack effects
+        this.load.image('slash', 'effects/slash.png');
+        this.load.image('fire', 'effects/fire.png');
+        this.load.image('fire-hit', 'effects/fire-hit.png');
+        this.load.image('fire-hit-end', 'effects/fire-hit-end.png');
     }
 
     create ()

@@ -75,6 +75,7 @@ export class Game extends Scene {
     doorCloseSound: Phaser.Sound.BaseSound;
     playerHurtSound: Phaser.Sound.BaseSound;
     enemySpottedSound: Phaser.Sound.BaseSound;
+    fireShootSound: Phaser.Sound.BaseSound;
     transitionOverlay: Phaser.GameObjects.Graphics;
 
     // Health system
@@ -167,6 +168,7 @@ export class Game extends Scene {
         // Combat sounds
         this.playerHurtSound = this.sound.add('playerHurt', { volume: 0.5 });
         this.enemySpottedSound = this.sound.add('enemySpotted', { volume: 0.3 });
+        this.fireShootSound = this.sound.add('fireShoot', { volume: 0.5 });
 
         // Create enemies group and spawn at all enemy spawn points
         this.enemies = this.physics.add.group();
@@ -496,6 +498,13 @@ export class Game extends Scene {
         }
     }
 
+    setMaskAbility() {
+        // speed mask
+        if (this.masks.mask === 1) {
+            // set ability to enum to dash
+        }
+    }
+
     createTouchControls() {
         const buttonSize = 64;
         const buttonSpacing = 16;
@@ -663,17 +672,81 @@ export class Game extends Scene {
                     repeat: 0,
                     onComplete: () => { this.player.setAlpha(1); }
                 });
-                if (this.enemySpottedSound) this.enemySpottedSound.play();
+                if (this.fireShootSound) this.fireShootSound.play();
+                // spawn a fire projectile at the player and launch it forward
+                const px = this.player.x;
+                const py = this.player.y; 
+
+                // determine direction (fallback to up)
+                let dir = new Phaser.Math.Vector2(this.lastMoveX, this.lastMoveY);
+                if (Math.abs(dir.x) < 1e-3 && Math.abs(dir.y) < 1e-3) {
+                    dir.set(0, -1);
+                }
+                dir = dir.normalize();
+
+                const speed = 600;
+
+                // create physics sprite for the fire projectile
+                const fire = this.physics.add.sprite(px, py, 'fire') as Phaser.Physics.Arcade.Sprite;
+                // Rotate projectile to face its travel direction. If your sprite art is not aligned
+                // to the right (0 radians), add an offset like +Math.PI/2 or -Math.PI/2 as needed.
+                fire.setRotation(dir.angle() + Math.PI / 2);
+                fire.setScale(1.0);
+                fire.body.setAllowGravity(false);
+                fire.setVelocity(dir.x * speed, dir.y * speed);
+                fire.setData('hit', false);
+
+                // ensure it doesn't live forever
+                const lifetime = 3000;
+                const lifetimeTimer = this.time.delayedCall(lifetime, () => {
+                    if (fire && fire.active) fire.destroy();
+                });
+
+                // collision handler for "anything"
+                const handleHit = (proj: Phaser.GameObjects.GameObject, _other: Phaser.GameObjects.GameObject) => {
+                    const p = proj as Phaser.Physics.Arcade.Sprite;
+                    if (p.getData('hit')) return;
+                    p.setData('hit', true);
+
+                    // stop movement and disable physics body to prevent further collisions
+                    p.setVelocity(0, 0);
+                    if (p.body) {
+                        (p.body as Phaser.Physics.Arcade.Body).enable = false;
+                    }
+                    p.setTexture('fire-hit');
+
+                    // short delay then final hit texture then destroy
+                    this.time.delayedCall(100, () => {
+                        if (!p.active) return;
+                        p.setTexture('fire-hit-end');
+                        this.time.delayedCall(150, () => {
+                            if (p && p.active) p.destroy();
+                        });
+                    });
+
+                    // cancel lifetime timer
+                    if (lifetimeTimer) lifetimeTimer.remove(false);
+                };
+
+                // collide with walls, doors, enemies and world bounds
+                if (this.walls) this.physics.add.collider(fire, this.walls, handleHit as any, undefined, this);
+                if (this.doors) this.physics.add.collider(fire, this.doors, handleHit as any, undefined, this);
+                if (this.enemies) this.physics.add.collider(fire, this.enemies, handleHit as any, undefined, this);
+
+                // world bounds hit -> trigger same sequence
+                fire.setCollideWorldBounds(true);
+                fire.body.onWorldBounds = true;
+                this.physics.world.on('worldbounds', (body: Phaser.Physics.Arcade.Body) => {
+                    if (body.gameObject === fire) {
+                        handleHit(fire, body.gameObject);
+                    }
+                });
                 console.log('Used Attack');
                 break;
             }
             case Ability.Interact: {
                 console.log('[ABILITY] Executing Interact');
-                // Try to interact with doors (call onDoorCollision if overlapping)
-                this.physics.overlap(this.player, this.doors, ((p: any, door: any) => {
-                    // Reuse the collision handler to perform the transition
-                    this.onDoorCollision(p, door);
-                }) as any, undefined, this);
+                // Placeholder for interact ability
                 console.log('Used Interact');
                 break;
             }
@@ -988,6 +1061,8 @@ export class Game extends Scene {
             // Normalize body velocity to be safe
             this.player.body!.velocity.normalize().scale(200);
 
+            // Normalize diagonal movement to maintain consistent speed
+            this.player.body!.velocity.normalize().scale(200);
             // Store last movement direction (unit vector) for dash usage
             this.lastMoveX = mv.x;
             this.lastMoveY = mv.y;
