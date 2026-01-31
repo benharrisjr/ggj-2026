@@ -1,4 +1,5 @@
 import { Scene } from 'phaser';
+import { Masks } from '../systems/masks/masks';
 
 // Door color mapping: RGB color -> target level
 // Add new colors here to create doors to different levels
@@ -58,9 +59,10 @@ export class Game extends Scene {
     isInvincible: boolean = false;
     isKnockedBack: boolean = false;
 
+    masks: Masks
+
     constructor() {
         super('Game');
-
     }
 
     create() {
@@ -136,18 +138,7 @@ export class Game extends Scene {
             right: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D)
         };
 
-        // Create overlay that covers the entire level (will be masked)
-        const overlay = this.add.graphics();
-        overlay.fillStyle(0x000000, 0.8).fillRect(0, 0, 2000, 2000); // Large enough for any level
-
-        this.maskGraphics = this.make.graphics();
-        this.maskGraphics.fillStyle(0xffffff);
-        // Draw initial rotated triangle
-        this.drawRotatedTriangle(this.player.x, this.player.y, this.playerAngle);
-
-        const mask = new Phaser.Display.Masks.BitmapMask(this, this.maskGraphics);
-        mask.invertAlpha = true;
-        overlay.setMask(mask);
+        this.masks = new Masks(this)
 
         // Create transition overlay (separate from fog-of-war mask)
         this.transitionOverlay = this.add.graphics();
@@ -549,57 +540,6 @@ export class Game extends Scene {
         this.justSpawnedOnDoor = true;
     }
 
-    getTrianglePoints(x: number, y: number, angle: number, size: number = 40): { p1: { x: number; y: number }; p2: { x: number; y: number }; p3: { x: number; y: number } } {
-        // Calculate the three points of the triangle rotated by the given angle
-        // Base triangle points before rotation (pointing up):
-        // Top: (0, -size)
-        // Bottom left: (-size, size)
-        // Bottom right: (size, size)
-
-        const cos = Math.cos(angle);
-        const sin = Math.sin(angle);
-
-        // Rotate and translate each point
-        const p1 = {
-            x: x + (0 * cos - (-size) * sin),
-            y: y + (0 * sin + (-size) * cos)
-        };
-
-        const p2 = {
-            x: x + ((-size) * cos - size * sin),
-            y: y + ((-size) * sin + size * cos)
-        };
-
-        const p3 = {
-            x: x + (size * cos - size * sin),
-            y: y + (size * sin + size * cos)
-        };
-
-        return { p1, p2, p3 };
-    }
-
-    drawRotatedTriangle(x: number, y: number, angle: number, size: number = 40) {
-        const { p1, p2, p3 } = this.getTrianglePoints(x, y, angle, size);
-        this.maskGraphics.fillTriangle(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
-    }
-
-    isPointInTriangle(px: number, py: number, p1: { x: number; y: number }, p2: { x: number; y: number }, p3: { x: number; y: number }): boolean {
-        // Using barycentric coordinates to check if point is inside triangle
-        const sign = (p1: { x: number; y: number }, p2: { x: number; y: number }, p3: { x: number; y: number }) => {
-            return (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
-        };
-
-        const point = { x: px, y: py };
-        const d1 = sign(point, p1, p2);
-        const d2 = sign(point, p2, p3);
-        const d3 = sign(point, p3, p1);
-
-        const hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0);
-        const hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0);
-
-        return !(hasNeg && hasPos);
-    }
-
     handleInput(): { x: number; y: number } {
         let x = 0;
         let y = 0;
@@ -666,10 +606,10 @@ export class Game extends Scene {
     }
 
     update() {
+        this.masks.update()
+
         // Skip input handling during knockback
         if (this.isKnockedBack) {
-            // Still update mask and enemy visibility during knockback
-            this.updateMaskAndEnemies();
             return;
         }
 
@@ -709,8 +649,6 @@ export class Game extends Scene {
             }
         }
 
-        this.updateMaskAndEnemies();
-
         // Reset spawn flag if player is no longer overlapping any doors
         if (this.justSpawnedOnDoor) {
             const overlappingAnyDoor = this.physics.overlap(this.player, this.doors);
@@ -718,94 +656,5 @@ export class Game extends Scene {
                 this.justSpawnedOnDoor = false;
             }
         }
-    }
-
-    updateMaskAndEnemies() {
-        // Update mask to follow player (clear previous frame to prevent trails)
-        this.maskGraphics.clear();
-        this.maskGraphics.fillStyle(0xffffff);
-        // Draw rotated triangle centered on player
-        this.drawRotatedTriangle(this.player.x, this.player.y, this.playerAngle, 80);
-
-        // Check if each enemy is inside the mask triangle
-        const trianglePoints = this.getTrianglePoints(this.player.x, this.player.y, this.playerAngle, 80);
-        this.enemies.getChildren().forEach((enemy) => {
-            const enemySprite = enemy as Phaser.Physics.Arcade.Image;
-            const wasVisible = enemySprite.visible;
-            const enemyInMask = this.isPointInTriangle(
-                enemySprite.x,
-                enemySprite.y,
-                trianglePoints.p1,
-                trianglePoints.p2,
-                trianglePoints.p3
-            );
-            enemySprite.setVisible(enemyInMask);
-
-            // Play spotted sound when enemy becomes visible
-            if (enemyInMask && !wasVisible) {
-                this.enemySpottedSound.play();
-            }
-
-            // Check if enemy is behind the player (outside forward 180 degree arc)
-            const angleToEnemy = Math.atan2(
-                enemySprite.y - this.player.y,
-                enemySprite.x - this.player.x
-            );
-            // Player faces opposite of playerAngle (subtract PI to get forward direction)
-            const playerForward = this.playerAngle - Math.PI;
-            let angleDiff = angleToEnemy - playerForward;
-            // Normalize to -PI to PI
-            while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-            while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-            const isBehindPlayer = Math.abs(angleDiff) > Math.PI / 2;
-
-            // Freeze enemy when in player's view AND in front of player
-            if (enemyInMask && !isBehindPlayer) {
-                // Store current velocity before freezing (if not already frozen)
-                if (!enemySprite.getData('frozen')) {
-                    enemySprite.setData('savedVelocityX', enemySprite.body?.velocity.x || 0);
-                    enemySprite.setData('savedVelocityY', enemySprite.body?.velocity.y || 0);
-                    enemySprite.setData('frozen', true);
-                }
-                enemySprite.setVelocity(0, 0);
-            } else {
-                // Restore movement when out of view
-                if (enemySprite.getData('frozen')) {
-                    enemySprite.setData('frozen', false);
-                }
-
-                // Calculate distance to player
-                const distToPlayer = Phaser.Math.Distance.Between(
-                    enemySprite.x, enemySprite.y,
-                    this.player.x, this.player.y
-                );
-
-                const speed = enemySprite.getData('speed') || 60;
-                const chaseRange = 200;
-
-                // Only chase if within range, and 70% chance to chase vs 30% random
-                const inRange = distToPlayer <= chaseRange;
-                const shouldChase = inRange && Math.random() < 0.7;
-
-                if (shouldChase) {
-                    // Move towards player
-                    const angle = Math.atan2(
-                        this.player.y - enemySprite.y,
-                        this.player.x - enemySprite.x
-                    );
-                    enemySprite.setVelocity(
-                        Math.cos(angle) * speed,
-                        Math.sin(angle) * speed
-                    );
-                } else {
-                    // Random direction
-                    const randomAngle = Math.random() * Math.PI * 2;
-                    enemySprite.setVelocity(
-                        Math.cos(randomAngle) * speed,
-                        Math.sin(randomAngle) * speed
-                    );
-                }
-            }
-        });
     }
 }
