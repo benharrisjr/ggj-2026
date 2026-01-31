@@ -7,6 +7,7 @@ export class Game extends Scene {
     cursors: Phaser.Types.Input.Keyboard.CursorKeys;
     wasd: { up: Phaser.Input.Keyboard.Key; down: Phaser.Input.Keyboard.Key; left: Phaser.Input.Keyboard.Key; right: Phaser.Input.Keyboard.Key };
     maskGraphics: Phaser.GameObjects.Graphics;
+    playerAngle: number = 0; // Start facing up (after correction)
 
     constructor() {
         super('Game');
@@ -44,13 +45,37 @@ export class Game extends Scene {
         this.maskGraphics = this.make.graphics();
 
         this.maskGraphics.fillStyle(0xffffff);
-        this.maskGraphics.fillRect(this.player.x, this.player.y, 64, 64);
+        // Draw initial rotated triangle
+        this.drawRotatedTriangle(this.player.x, this.player.y, this.playerAngle);
 
         const mask = new Phaser.Display.Masks.BitmapMask(this, this.maskGraphics);
 
         mask.invertAlpha = true;
 
         overlay.setMask(mask);
+    }
+
+    drawRotatedTriangle(x: number, y: number, angle: number, size: number = 40) {
+        // Calculate the three points of the triangle rotated by the given angle
+        // Base triangle points before rotation (pointing up):
+        // Top: (0, -size)
+        // Bottom left: (-size, size)
+        // Bottom right: (size, size)
+
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+
+        // Rotate and translate each point
+        const p1x = x + (0 * cos - (-size) * sin);
+        const p1y = y + (0 * sin + (-size) * cos);
+
+        const p2x = x + ((-size) * cos - size * sin);
+        const p2y = y + ((-size) * sin + size * cos);
+
+        const p3x = x + (size * cos - size * sin);
+        const p3y = y + (size * sin + size * cos);
+
+        this.maskGraphics.fillTriangle(p1x, p1y, p2x, p2y, p3x, p3y);
     }
 
     handleInput(): { x: number; y: number } {
@@ -132,11 +157,16 @@ export class Game extends Scene {
 
             // Normalize diagonal movement to maintain consistent speed
             this.player.body.velocity.normalize().scale(200);
+
+            // Update player angle based on movement direction
+            // Add PI/2 to correct the orientation, then add PI to flip 180 degrees
+            this.playerAngle = Math.atan2(input.y, input.x) + Math.PI / 2 + Math.PI;
         }
 
         // Update mask to follow player (clear previous frame to prevent trails)
         this.maskGraphics.clear();
         this.maskGraphics.fillStyle(0xffffff);
-        this.maskGraphics.fillRect(this.player.x - 32, this.player.y - 32, 64, 64);
+        // Draw rotated triangle centered on player
+        this.drawRotatedTriangle(this.player.x, this.player.y, this.playerAngle);
     }
 }
