@@ -1,35 +1,49 @@
 import { Scene } from 'phaser';
 
-export class Game extends Scene
-{
+export class Game extends Scene {
     camera: Phaser.Cameras.Scene2D.Camera;
     background: Phaser.GameObjects.Image;
-    msg_text : Phaser.GameObjects.Text;
+    player: Phaser.Physics.Arcade.Image; // Changed to Arcade.Image for physics
+    cursors: Phaser.Types.Input.Keyboard.CursorKeys;
 
-    constructor ()
-    {
+    constructor() {
         super('Game');
     }
 
-    create ()
-    {
+    create() {
         this.camera = this.cameras.main;
         this.camera.setBackgroundColor(0x00ff00);
 
         this.background = this.add.image(512, 384, 'background');
         this.background.setAlpha(0.5);
 
-        this.msg_text = this.add.text(512, 384, 'Make something fun!\nand share it with us:\nsupport@phaser.io', {
-            fontFamily: 'Arial Black', fontSize: 38, color: '#ffffff',
-            stroke: '#000000', strokeThickness: 8,
-            align: 'center'
-        });
-        this.msg_text.setOrigin(0.5);
+        // Enable physics for the player
+        this.player = this.physics.add.image(512, 384, 'player');
+        this.player.setCollideWorldBounds(true); // Prevent the player from leaving the screen
 
-        this.input.once('pointerdown', () => {
+        // Create cursor keys for input
+        this.cursors = this.input.keyboard.createCursorKeys();
+    }
 
-            this.scene.start('GameOver');
+    update() {
+        // Reset player velocity
+        this.player.setVelocity(0);
 
-        });
+        // Horizontal movement
+        if (this.cursors.left?.isDown) {
+            this.player.setVelocityX(-200);
+        } else if (this.cursors.right?.isDown) {
+            this.player.setVelocityX(200);
+        }
+
+        // Vertical movement
+        if (this.cursors.up?.isDown) {
+            this.player.setVelocityY(-200);
+        } else if (this.cursors.down?.isDown) {
+            this.player.setVelocityY(200);
+        }
+
+        // Normalize diagonal movement
+        this.player.body.velocity.normalize().scale(200);
     }
 }
