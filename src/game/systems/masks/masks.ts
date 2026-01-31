@@ -82,6 +82,13 @@ export class Masks {
     maskSelect(mask: number) {
         this.mask = mask
         console.log("mask set", mask)
+        // Emit an event on the scene so external code (e.g., Game.ts) can react
+        // with the selected mask value.
+        try {
+            this.game.events.emit('mask:select', mask);
+        } catch (e) {
+            // Ignore if events not available for any reason
+        }
     }
 
     checkEnemies() {
@@ -215,6 +222,7 @@ export class Masks {
     }
 
     enemyVisible(enemy: Phaser.Physics.Arcade.Image): boolean {
+        console.log(enemy)
         return true
     }
 }
