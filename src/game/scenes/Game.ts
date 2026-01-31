@@ -121,6 +121,7 @@ export class Game extends Scene {
     }
 
     create() {
+        this.physics.world.debugGraphic.visible = false;
         this.camera = this.cameras.main;
         this.camera.setZoom(1.0);
         this.camera.setBackgroundColor(0x000000);
