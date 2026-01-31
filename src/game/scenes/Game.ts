@@ -1,5 +1,6 @@
 import { Scene } from 'phaser';
 import { Masks } from '../systems/masks/masks';
+import { Ability } from '../systems/abilities/abilities';
 
 // Door color mapping: RGB color -> target level
 // Add new colors here to create doors to different levels
@@ -83,18 +84,33 @@ export class Game extends Scene {
     isInvincible: boolean = false;
     isKnockedBack: boolean = false;
 
-    // Touch controls
+    // Touch controls (added action button)
     touchButtons: {
         up?: Phaser.GameObjects.Image;
         down?: Phaser.GameObjects.Image;
         left?: Phaser.GameObjects.Image;
         right?: Phaser.GameObjects.Image;
+        action?: Phaser.GameObjects.Image;
     } = {};
     touchInput = { up: false, down: false, left: false, right: false };
 
     gamepadMessage: Phaser.GameObjects.Text;
 
     masks: Masks
+    maskValueText: Phaser.GameObjects.Text;
+
+    // Ability system
+    currentAbility: Ability = Ability.Interact;
+    abilityLastUsed: Record<number, number> = {};
+    abilityCooldowns: Record<number, number> = {};
+    spaceKey: Phaser.Input.Keyboard.Key;
+    previousGamepadAState: boolean = false;
+    actionButtonPressed: boolean = false;
+    // Last movement direction (unit vector) used for dash fallback
+    lastMoveX: number = 0;
+    lastMoveY: number = -1;
+    // Dashing state to prevent update from overwriting dash velocity
+    isDashing: boolean = false;
 
     constructor() {
         super('Game');
@@ -131,8 +147,8 @@ export class Game extends Scene {
         // Add collision between player and walls
         this.physics.add.collider(this.player, this.walls);
 
-        // Add overlap detection for doors
-        this.physics.add.overlap(this.player, this.doors, this.onDoorCollision, undefined, this);
+    // Add overlap detection for doors
+    this.physics.add.overlap(this.player, this.doors, this.onDoorCollision as any, undefined, this);
 
         // Load all footstep sound variations
         this.footstepSounds = [];
@@ -156,14 +172,17 @@ export class Game extends Scene {
         this.enemies = this.physics.add.group();
         this.spawnEnemies();
 
-        // Add collision between player and enemies (for damage)
-        this.physics.add.overlap(this.player, this.enemies, this.onEnemyCollision, undefined, this);
+    // Add collision between player and enemies (for damage)
+    this.physics.add.overlap(this.player, this.enemies, this.onEnemyCollision as any, undefined, this);
 
         // Create health UI
         this.createHealthUI();
 
         // Create cursor keys for input
-        this.cursors = this.input.keyboard!.createCursorKeys();
+    this.cursors = this.input.keyboard!.createCursorKeys();
+
+    // Space key for action
+    this.spaceKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
 
         // Create WASD keys
         this.wasd = {
@@ -212,7 +231,42 @@ export class Game extends Scene {
             this.createTouchControls();
         }
 
+        // Initialize ability cooldowns (ms)
+        this.abilityCooldowns[Ability.Dash] = 1000;
+        this.abilityCooldowns[Ability.Attack] = 500;
+        this.abilityCooldowns[Ability.Interact] = 250;
+        this.abilityCooldowns[Ability.Special] = 2000;
+        // ensure last-used defaults
+        Object.keys(this.abilityCooldowns).forEach(k => { this.abilityLastUsed[Number(k)] = 0; });
+
         this.masks = new Masks(this)
+
+        // Listen for mask selection events and map them to abilities.
+        // When a mask is selected, set the current ability (if mapped) and try to use it.
+        this.events.on('mask:select', (mask: number) => {
+            console.log('[MASK] Mask selected:', mask);
+            const mapping: Record<number, Ability> = {
+                1: Ability.Dash,
+                2: Ability.Attack,
+                3: Ability.Interact,
+                4: Ability.Special
+            };
+            if (mapping[mask] !== undefined) {
+                this.currentAbility = mapping[mask];
+                console.log('[MASK] Current ability set to:', this.currentAbility, '(', Ability[this.currentAbility], ')');
+            } else {
+                console.log('[MASK] No ability mapping for mask:', mask);
+            }
+        });
+
+        // Display current mask value in top-right for debugging
+        const pad = 8;
+        this.maskValueText = this.add.text(this.camera.width - pad, pad, `Mask: ${this.masks.mask}`, {
+            font: '16px monospace',
+            color: '#ffffff'
+        }).setOrigin(1, 0);
+        this.maskValueText.setScrollFactor(0);
+        this.maskValueText.setDepth(1001);
 
         // Create transition overlay (separate from fog-of-war mask)
         this.transitionOverlay = this.add.graphics();
@@ -514,6 +568,132 @@ export class Game extends Scene {
         });
 
         console.log('Touch controls created');
+
+        // Add an action button on the right side for touch devices
+        const actionX = this.cameras.main.width - 80;
+        const actionY = this.cameras.main.height - 120;
+        this.touchButtons.action = this.add.image(actionX, actionY, 'btn-action');
+        const actionBtn = this.touchButtons.action;
+        actionBtn.setScrollFactor(0);
+        actionBtn.setDepth(998);
+        actionBtn.setScale(3.0);
+        actionBtn.setAlpha(0.9);
+        actionBtn.setInteractive();
+        actionBtn.on('pointerdown', () => {
+            console.log('[ACTION] Touch action button pressed');
+            this.tryUseAbility();
+            actionBtn.setAlpha(1.0);
+        });
+        actionBtn.on('pointerup', () => {
+            actionBtn.setAlpha(0.9);
+        });
+        actionBtn.on('pointerout', () => {
+            actionBtn.setAlpha(0.9);
+        });
+    }
+
+    tryUseAbility() {
+        console.log('[ABILITY] tryUseAbility() called');
+        console.log('[ABILITY] Current ability:', this.currentAbility, '(', Ability[this.currentAbility], ')');
+        console.log('[ABILITY] Current mask:', this.masks.mask);
+
+        const now = this.time.now;
+        const abilityKey = this.currentAbility as number;
+        const last = this.abilityLastUsed[abilityKey] || 0;
+        const cd = this.abilityCooldowns[abilityKey] || 0;
+        const cooldownRemaining = Math.max(0, cd - (now - last));
+
+        console.log('[ABILITY] Cooldown:', cd, 'ms | Time since last use:', now - last, 'ms | Remaining:', cooldownRemaining, 'ms');
+
+        if (now - last < cd) {
+            console.log('[ABILITY] Still cooling down, aborting');
+            return;
+        }
+
+        console.log('[ABILITY] Cooldown passed, executing ability');
+        this.abilityLastUsed[abilityKey] = now;
+        this.useAbility(this.currentAbility);
+    }
+
+    useAbility(ability: Ability) {
+        console.log('[ABILITY] useAbility() called with:', ability, '(', Ability[ability], ')');
+
+        switch (ability) {
+            case Ability.Dash: {
+                console.log('[ABILITY] Executing Dash');
+                // Short burst in the last movement direction (fallback to current velocity or up)
+                const dashSpeed = 600;
+                // Prefer the last known movement direction (unit vector)
+                let dirX = this.lastMoveX;
+                let dirY = this.lastMoveY;
+
+                // If last movement is essentially zero, try to derive from current body velocity
+                if (Math.abs(dirX) < 1e-3 && Math.abs(dirY) < 1e-3) {
+                    const bvx = this.player.body?.velocity.x || 0;
+                    const bvy = this.player.body?.velocity.y || 0;
+                    const blen = Math.hypot(bvx, bvy);
+                    if (blen > 1e-3) {
+                        dirX = bvx / blen;
+                        dirY = bvy / blen;
+                    } else {
+                        // Default to up
+                        dirX = 0;
+                        dirY = -1;
+                    }
+                }
+
+                const vx = dirX * dashSpeed;
+                const vy = dirY * dashSpeed;
+                console.log('Dash direction:', dirX, dirY, 'Dash velocity:', vx, vy);
+                // Activate dash state and set velocity
+                this.isDashing = true;
+                this.player.setVelocity(vx, vy);
+                // Make invincible for a short moment while dashing
+                this.isInvincible = true;
+                this.time.delayedCall(200, () => {
+                    this.isInvincible = false;
+                    this.isDashing = false;
+                    // stop dash movement gently
+                    this.player.setVelocity(0, 0);
+                });
+                console.log('Used Dash');
+                break;
+            }
+            case Ability.Attack: {
+                console.log('[ABILITY] Executing Attack');
+                // Simple attack stub: flash player and play a sound if available
+                this.tweens.add({
+                    targets: this.player,
+                    alpha: 0.3,
+                    duration: 80,
+                    yoyo: true,
+                    repeat: 0,
+                    onComplete: () => { this.player.setAlpha(1); }
+                });
+                if (this.enemySpottedSound) this.enemySpottedSound.play();
+                console.log('Used Attack');
+                break;
+            }
+            case Ability.Interact: {
+                console.log('[ABILITY] Executing Interact');
+                // Try to interact with doors (call onDoorCollision if overlapping)
+                this.physics.overlap(this.player, this.doors, ((p: any, door: any) => {
+                    // Reuse the collision handler to perform the transition
+                    this.onDoorCollision(p, door);
+                }) as any, undefined, this);
+                console.log('Used Interact');
+                break;
+            }
+            case Ability.Special: {
+                console.log('[ABILITY] Executing Special');
+                // Placeholder for special ability
+                console.log('Used Special ability');
+                break;
+            }
+            default:
+                console.log('[ABILITY] Unknown ability:', ability);
+                break;
+        }
     }
 
     onEnemyCollision(_player: Phaser.GameObjects.GameObject, enemy: Phaser.GameObjects.GameObject) {
@@ -655,7 +835,7 @@ export class Game extends Scene {
 
         // Re-add colliders
         this.physics.add.collider(this.player, this.walls);
-        this.physics.add.overlap(this.player, this.doors, this.onDoorCollision, undefined, this);
+        this.physics.add.overlap(this.player, this.doors, this.onDoorCollision as any, undefined, this);
 
         // Find door that leads back to previous level and spawn there
         const spawnDoor = this.doorDataList.find(d => d.targetLevel === this.previousLevel);
@@ -682,7 +862,7 @@ export class Game extends Scene {
         this.spawnEnemies();
 
         // Re-add enemy collision
-        this.physics.add.overlap(this.player, this.enemies, this.onEnemyCollision, undefined, this);
+    this.physics.add.overlap(this.player, this.enemies, this.onEnemyCollision as any, undefined, this);
 
         // Mark that player just spawned (may be on a door)
         this.justSpawnedOnDoor = true;
@@ -769,8 +949,33 @@ export class Game extends Scene {
     update() {
         this.masks.update()
 
-        // Skip input handling during knockback
-        if (this.isKnockedBack) {
+        // Update on-screen mask value display
+        if (this.maskValueText) {
+            this.maskValueText.setText(`Mask: ${this.masks.mask}`);
+            // Keep positioned top-right in case camera size changes
+            const pad = 8;
+            this.maskValueText.setPosition(this.camera.width - pad, pad);
+        }
+
+        // Handle action input: keyboard (space) and gamepad A (rising edge)
+        // Keyboard: just down
+        if (Phaser.Input.Keyboard.JustDown(this.spaceKey)) {
+            console.log('[ACTION] Space key pressed');
+            this.tryUseAbility();
+        }
+
+        // Gamepad A detection (rising edge)
+        if (this.gamepad) {
+            const aPressed = !!(this.gamepad.buttons && this.gamepad.buttons[0] && this.gamepad.buttons[0].pressed);
+            if (aPressed && !this.previousGamepadAState) {
+                console.log('[ACTION] Gamepad A button pressed');
+                this.tryUseAbility();
+            }
+            this.previousGamepadAState = aPressed;
+        }
+
+        // Skip input handling during knockback or while dashing (so dash velocity isn't immediately overwritten)
+        if (this.isKnockedBack || this.isDashing) {
             return;
         }
 
@@ -782,11 +987,19 @@ export class Game extends Scene {
 
         // Apply movement
         if (input.x !== 0 || input.y !== 0) {
-            // Set velocity based on input
-            this.player.setVelocity(input.x * 200, input.y * 200);
+            // Set velocity based on input (normalize for consistent speed)
+            // Use a local vector so we can store the normalized facing for dash
+            const mv = new Phaser.Math.Vector2(input.x, input.y);
+            if (mv.length() > 0) mv.normalize();
+            this.player.setVelocity(mv.x * 200, mv.y * 200);
+            // Normalize body velocity to be safe
+            this.player.body!.velocity.normalize().scale(200);
 
             // Normalize diagonal movement to maintain consistent speed
             this.player.body!.velocity.normalize().scale(200);
+            // Store last movement direction (unit vector) for dash usage
+            this.lastMoveX = mv.x;
+            this.lastMoveY = mv.y;
 
             // Update player angle based on movement direction
             // Add PI/2 to correct the orientation, then add PI to flip 180 degrees
