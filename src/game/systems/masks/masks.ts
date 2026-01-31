@@ -19,11 +19,15 @@ export class Masks {
     gfx: Phaser.GameObjects.Graphics
     maskKeys: Record<number, Array<Phaser.Input.Keyboard.Key>> = {};
     mask: number = 0
+    maskTexture: Phaser.Textures.Texture
+    maskPixels: Uint8ClampedArray<ArrayBuffer>
 
     constructor(game: Game) {
         this.game = game
         this.player = game.player
         this.gfx = game.make.graphics()
+
+        this.setTexture('mask');
 
         this.setupInput()
 
@@ -39,6 +43,26 @@ export class Masks {
         const mask = new Phaser.Display.Masks.BitmapMask(game, this.gfx);
         mask.invertAlpha = true;
         overlay.setMask(mask);
+    }
+
+    setTexture(name: string) {
+        this.maskTexture = this.game.textures.get(name)
+        const source = this.maskTexture.getSourceImage() as HTMLImageElement;
+
+        // Create a canvas to extract pixel data
+        const canvas = document.createElement('canvas');
+        canvas.width = source.width;
+        canvas.height = source.height;
+        const ctx = canvas.getContext('2d')!;
+
+        // Draw the image to the canvas
+        ctx.drawImage(source, 0, 0);
+
+        // Get pixel data
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        this.maskPixels = imageData.data;
+
+        console.log("mask pixel length", this.maskPixels.length, "dimensions", canvas.width, "x", canvas.height)
     }
 
     setupInput() {
