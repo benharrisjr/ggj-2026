@@ -7,12 +7,36 @@ const DOOR_COLORS: { r: number; g: number; b: number; targetLevel: number }[] = 
     { r: 190, g: 74, b: 47, targetLevel: 1 },   // #BE4A2F -> Level 1
     { r: 69, g: 40, b: 60, targetLevel: 0 },    // #45283C -> Level 0
     // Add more door colors as needed:
-    // { r: 102, g: 57, b: 49, targetLevel: 2 },  // #663931 -> Level 2
+    // { r: 102, g: 57, b: 49, targetLevel: 2 },  
+    // #D77643 door2
+    // #EAD4AA door3
+    // #E4A672 door4
+    // #FEAE34 ladder
+    // #FEE761 ladder2
+    // #3E8948 ladder3
+    // #124E89 ladder4
 ];
 
 // Special tile colors
 const PLAYER_SPAWN_COLOR = { r: 99, g: 199, b: 77 };   // #63C74D - player spawn
 const ENEMY_SPAWN_COLOR = { r: 215, g: 67, b: 207 };   // #D743CF - enemy spawn
+
+// #0099DB chest
+// #2CE8F5 barrel
+// #FFFFFF crate
+// #C0CBDC water
+// #8B9BB4 anvil
+// #5A6988 pickup
+// #3A4466 pickup1
+// #181425 pickup2
+// #FF0044 pickup3
+// #B55088 pickup4
+// #733E39 pickup5
+// #A22633 pickup6
+// #F77622 pickup7
+
+// 
+
 
 interface DoorData {
     x: number;
