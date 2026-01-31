@@ -1,5 +1,20 @@
 import { Scene } from 'phaser';
 
+// Door color mapping: RGB color -> target level
+// Add new colors here to create doors to different levels
+const DOOR_COLORS: { r: number; g: number; b: number; targetLevel: number }[] = [
+    { r: 190, g: 74, b: 47, targetLevel: 1 },   // #BE4A2F -> Level 1
+    { r: 69, g: 40, b: 60, targetLevel: 0 },    // #45283C -> Level 0
+    // Add more door colors as needed:
+    // { r: 102, g: 57, b: 49, targetLevel: 2 },  // #663931 -> Level 2
+];
+
+interface DoorData {
+    x: number;
+    y: number;
+    targetLevel: number;
+}
+
 export class Game extends Scene {
     camera: Phaser.Cameras.Scene2D.Camera;
     background: Phaser.GameObjects.Image;
@@ -8,12 +23,19 @@ export class Game extends Scene {
     enemy: Phaser.Physics.Arcade.Image;
     walls: Phaser.Physics.Arcade.StaticGroup;
     doors: Phaser.Physics.Arcade.StaticGroup;
+    doorDataList: DoorData[];
     cursors: Phaser.Types.Input.Keyboard.CursorKeys;
     wasd: { up: Phaser.Input.Keyboard.Key; down: Phaser.Input.Keyboard.Key; left: Phaser.Input.Keyboard.Key; right: Phaser.Input.Keyboard.Key };
     maskGraphics: Phaser.GameObjects.Graphics;
     playerAngle: number = 0; // Start facing up (after correction)
     gamepad: Phaser.Input.Gamepad.Gamepad;
     currentLevel: number = 0;
+    previousLevel: number = -1;
+    isTransitioning: boolean = false;
+    footstepSounds: Phaser.Sound.BaseSound[];
+    isPlayingFootstep: boolean = false;
+    doorOpenSound: Phaser.Sound.BaseSound;
+    doorCloseSound: Phaser.Sound.BaseSound;
 
     constructor() {
         super('Game');
@@ -49,6 +71,20 @@ export class Game extends Scene {
 
         // Add overlap detection for doors
         this.physics.add.overlap(this.player, this.doors, this.onDoorCollision, undefined, this);
+
+        // Load all footstep sound variations
+        this.footstepSounds = [];
+        for (let i = 1; i <= 9; i++) {
+            const sound = this.sound.add(`footstep0${i}`, { volume: 0.2 });
+            sound.on('complete', () => {
+                this.isPlayingFootstep = false;
+            });
+            this.footstepSounds.push(sound);
+        }
+
+        // Door sounds
+        this.doorOpenSound = this.sound.add('doorOpen', { volume: 0.5 });
+        this.doorCloseSound = this.sound.add('doorClose', { volume: 0.5 });
 
         this.enemys = this.physics.add.group();
         this.enemy = this.enemys.create(200, 200, 'enemy');
@@ -93,13 +129,45 @@ export class Game extends Scene {
         this.camera.setBounds(0, 0, levelWidth, levelHeight);
     }
 
+    calculateDoorSpawnOffset(doorX: number, doorY: number): { x: number; y: number } {
+        const levelWidth = this.background.displayWidth;
+        const levelHeight = this.background.displayHeight;
+        const offset = 48; // Spawn offset distance
+
+        // Calculate door position relative to level center
+        const centerX = levelWidth / 2;
+        const centerY = levelHeight / 2;
+
+        // Calculate distance from each edge
+        const distToLeft = doorX;
+        const distToRight = levelWidth - doorX;
+        const distToTop = doorY;
+        const distToBottom = levelHeight - doorY;
+
+        // Find which edge is closest
+        const minDist = Math.min(distToLeft, distToRight, distToTop, distToBottom);
+
+        // Offset away from the closest edge (into the room)
+        if (minDist === distToLeft) {
+            return { x: offset, y: 0 };  // Door on left, spawn to the right
+        } else if (minDist === distToRight) {
+            return { x: -offset, y: 0 }; // Door on right, spawn to the left
+        } else if (minDist === distToTop) {
+            return { x: 0, y: offset };  // Door on top, spawn below
+        } else {
+            return { x: 0, y: -offset }; // Door on bottom, spawn above
+        }
+    }
+
     createCollisionLayer() {
         this.walls = this.physics.add.staticGroup();
         this.doors = this.physics.add.staticGroup();
+        this.doorDataList = [];
 
         // IntGrid is 20x11, each cell represents 16x16 pixels in Tiles.png
         // With 2.0 scale, each cell is 32x32 in game world
         const tileSize = 32;
+        const colorTolerance = 20;
 
         // Get the intgrid texture and read pixel data
         const texture = this.textures.get(`intgrid_${this.currentLevel}`);
@@ -119,10 +187,6 @@ export class Game extends Scene {
         let wallCount = 0;
         let doorCount = 0;
 
-        // Door color: #BE4A2F = R:190, G:74, B:47
-        const doorR = 190, doorG = 74, doorB = 47;
-        const colorTolerance = 20;
-
         // Loop through each pixel in the IntGrid
         for (let y = 0; y < source.height; y++) {
             for (let x = 0; x < source.width; x++) {
@@ -132,22 +196,39 @@ export class Game extends Scene {
                 const b = pixels[pixelIndex + 2];
                 const a = pixels[pixelIndex + 3];
 
+                if (a < 200) continue; // Skip transparent pixels
+
                 // Position is center of tile, offset from level origin (0,0)
                 const worldX = x * tileSize + tileSize / 2;
                 const worldY = y * tileSize + tileSize / 2;
 
-                // Check if pixel is door color (#BE4A2F)
-                if (Math.abs(r - doorR) < colorTolerance &&
-                    Math.abs(g - doorG) < colorTolerance &&
-                    Math.abs(b - doorB) < colorTolerance &&
-                    a > 200) {
-                    const door = this.add.rectangle(worldX, worldY, tileSize, tileSize);
-                    this.physics.add.existing(door, true);
-                    this.doors.add(door);
-                    doorCount++;
+                // Check if pixel matches any door color
+                let isDoor = false;
+                for (const doorColor of DOOR_COLORS) {
+                    if (Math.abs(r - doorColor.r) < colorTolerance &&
+                        Math.abs(g - doorColor.g) < colorTolerance &&
+                        Math.abs(b - doorColor.b) < colorTolerance) {
+
+                        const door = this.add.rectangle(worldX, worldY, tileSize, tileSize);
+                        this.physics.add.existing(door, true);
+                        door.setData('targetLevel', doorColor.targetLevel);
+                        this.doors.add(door);
+
+                        // Store door data for spawn point lookup
+                        this.doorDataList.push({
+                            x: worldX,
+                            y: worldY,
+                            targetLevel: doorColor.targetLevel
+                        });
+
+                        doorCount++;
+                        isDoor = true;
+                        break;
+                    }
                 }
+
                 // Check if pixel is black (wall tile)
-                else if (r < 50 && g < 50 && b < 50 && a > 200) {
+                if (!isDoor && r < 50 && g < 50 && b < 50) {
                     const wall = this.add.rectangle(worldX, worldY, tileSize, tileSize);
                     this.physics.add.existing(wall, true);
                     this.walls.add(wall);
@@ -156,12 +237,19 @@ export class Game extends Scene {
             }
         }
 
-        console.log('Created walls:', wallCount, 'doors:', doorCount);
+        console.log('Created walls:', wallCount, 'doors:', doorCount, 'doorData:', this.doorDataList);
     }
 
-    onDoorCollision() {
-        console.log('Door collision! Loading next level...');
-        this.loadLevel(this.currentLevel + 1);
+    onDoorCollision(_player: Phaser.GameObjects.GameObject, door: Phaser.GameObjects.GameObject) {
+        // Prevent multiple transitions
+        if (this.isTransitioning) return;
+        this.isTransitioning = true;
+
+        const targetLevel = door.getData('targetLevel') as number;
+        console.log(`Door collision! Going from level ${this.currentLevel} to level ${targetLevel}`);
+
+        this.doorOpenSound.play();
+        this.loadLevel(targetLevel);
     }
 
     loadLevel(levelIndex: number) {
@@ -169,7 +257,8 @@ export class Game extends Scene {
         this.walls.clear(true, true);
         this.doors.clear(true, true);
 
-        // Update current level
+        // Track level transition
+        this.previousLevel = this.currentLevel;
         this.currentLevel = levelIndex;
 
         // Update background
@@ -185,8 +274,27 @@ export class Game extends Scene {
         this.physics.add.collider(this.player, this.walls);
         this.physics.add.overlap(this.player, this.doors, this.onDoorCollision, undefined, this);
 
-        // Move player to starting position for new level
-        this.player.setPosition(100, 100);
+        // Find door that leads back to previous level and spawn there
+        const spawnDoor = this.doorDataList.find(d => d.targetLevel === this.previousLevel);
+        if (spawnDoor) {
+            const spawnOffset = this.calculateDoorSpawnOffset(spawnDoor.x, spawnDoor.y);
+            const spawnX = spawnDoor.x + spawnOffset.x;
+            const spawnY = spawnDoor.y + spawnOffset.y;
+            this.player.setPosition(spawnX, spawnY);
+            console.log(`Spawning at door to level ${this.previousLevel}:`, spawnX, spawnY);
+        } else {
+            // Fallback spawn position if no matching door found
+            this.player.setPosition(100, 100);
+            console.log('No matching door found, spawning at default position');
+        }
+
+        // Play door close sound
+        this.doorCloseSound.play();
+
+        // Allow transitions again after a short delay
+        this.time.delayedCall(500, () => {
+            this.isTransitioning = false;
+        });
     }
 
     getTrianglePoints(x: number, y: number, angle: number, size: number = 40): { p1: { x: number; y: number }; p2: { x: number; y: number }; p3: { x: number; y: number } } {
@@ -330,6 +438,15 @@ export class Game extends Scene {
                 this.player.setFlipX(true);
             } else if (input.x > deadzone) {
                 this.player.setFlipX(false);
+            }
+
+            // Play random footstep sound while moving
+            if (!this.isPlayingFootstep) {
+                const randomIndex = Math.floor(Math.random() * this.footstepSounds.length);
+                const sound = this.footstepSounds[randomIndex] as Phaser.Sound.WebAudioSound;
+                sound.setRate(0.8 + Math.random() * 0.4);
+                sound.play();
+                this.isPlayingFootstep = true;
             }
         }
 
