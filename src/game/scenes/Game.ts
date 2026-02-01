@@ -66,6 +66,7 @@ export class Game extends Scene {
     walls: Phaser.Physics.Arcade.StaticGroup;
     doors: Phaser.Physics.Arcade.StaticGroup;
     doorDataList: DoorData[];
+    doorSprites: Phaser.GameObjects.Image[];
     playerSpawnPoint: SpawnPoint | null;
     enemySpawnPoints: SpawnPoint[];
     cursors: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -84,6 +85,7 @@ export class Game extends Scene {
     playerHurtSound: Phaser.Sound.BaseSound;
     enemySpottedSound: Phaser.Sound.BaseSound;
     fireShootSound: Phaser.Sound.BaseSound;
+    slashSound: Phaser.Sound.BaseSound;
     transitionOverlay: Phaser.GameObjects.Graphics;
 
     // Health system
@@ -116,6 +118,8 @@ export class Game extends Scene {
     torches: Phaser.Physics.Arcade.StaticGroup;
     // Player direction for sprite selection
     currentPlayerDirection: 'up' | 'down' | 'horizontal' = 'down';
+    // Enemy tracking
+    remainingEnemies: number = 0;
 
     constructor() {
         super('Game');
@@ -209,6 +213,7 @@ export class Game extends Scene {
         this.playerHurtSound = this.sound.add('playerHurt', { volume: 0.5 });
         this.enemySpottedSound = this.sound.add('enemySpotted', { volume: 0.3 });
         this.fireShootSound = this.sound.add('fireShoot', { volume: 0.5 });
+        this.slashSound = this.sound.add('slashSound', { volume: 0.4 });
 
         // Create enemies group and spawn at all enemy spawn points
         this.enemies = this.physics.add.group();
@@ -229,6 +234,13 @@ export class Game extends Scene {
 
     // Escape key for debug toggle
     this.escapeKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
+
+        // Left click for basic attack
+        this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+            if (pointer.leftButtonDown()) {
+                this.performBasicAttack();
+            }
+        });
 
         // Create WASD keys
         this.wasd = {
@@ -357,6 +369,7 @@ export class Game extends Scene {
         this.walls = this.physics.add.staticGroup();
         this.doors = this.physics.add.staticGroup();
         this.doorDataList = [];
+        this.doorSprites = [];
         this.playerSpawnPoint = null;
         this.enemySpawnPoints = [];
 
@@ -428,6 +441,51 @@ export class Game extends Scene {
                         door.setData('targetLevel', doorColor.targetLevel);
                         this.doors.add(door);
 
+                        // Determine if this is left or right door tile by checking adjacent pixel
+                        let isLeftDoor = true; // Default to left
+
+                        // Check pixel to the right
+                        if (x + 1 < source.width) {
+                            const rightPixelIndex = (y * source.width + (x + 1)) * 4;
+                            const rightR = pixels[rightPixelIndex];
+                            const rightG = pixels[rightPixelIndex + 1];
+                            const rightB = pixels[rightPixelIndex + 2];
+                            const rightA = pixels[rightPixelIndex + 3];
+
+                            // If right pixel is also a door (same color), this is left tile
+                            if (rightA >= 200 &&
+                                Math.abs(rightR - r) < colorTolerance &&
+                                Math.abs(rightG - g) < colorTolerance &&
+                                Math.abs(rightB - b) < colorTolerance) {
+                                isLeftDoor = true;
+                            }
+                        }
+
+                        // Check pixel to the left
+                        if (x - 1 >= 0) {
+                            const leftPixelIndex = (y * source.width + (x - 1)) * 4;
+                            const leftR = pixels[leftPixelIndex];
+                            const leftG = pixels[leftPixelIndex + 1];
+                            const leftB = pixels[leftPixelIndex + 2];
+                            const leftA = pixels[leftPixelIndex + 3];
+
+                            // If left pixel is also a door (same color), this is right tile
+                            if (leftA >= 200 &&
+                                Math.abs(leftR - r) < colorTolerance &&
+                                Math.abs(leftG - g) < colorTolerance &&
+                                Math.abs(leftB - b) < colorTolerance) {
+                                isLeftDoor = false;
+                            }
+                        }
+
+                        // Create visual door sprite with correct tile
+                        const doorTexture = isLeftDoor ? 'door-closed-left' : 'door-closed-right';
+                        const doorSprite = this.add.image(worldX, worldY, doorTexture);
+                        doorSprite.setScale(2.0);
+                        doorSprite.setDepth(1); // Above background, below player
+                        doorSprite.setData('isLeft', isLeftDoor); // Store for opening later
+                        this.doorSprites.push(doorSprite);
+
                         // Store door data for spawn point lookup
                         this.doorDataList.push({
                             x: worldX,
@@ -458,6 +516,9 @@ export class Game extends Scene {
         // Clear existing enemies
         this.enemies.clear(true, true);
 
+        // Set remaining enemies count
+        this.remainingEnemies = this.enemySpawnPoints.length;
+
         const enemySprites = ['enemy', 'enemy2', 'enemy3'];
         const enemySpeed = 60;
 
@@ -476,14 +537,61 @@ export class Game extends Scene {
                 Math.sin(angle) * enemySpeed
             );
 
-            // Store the base speed for later
+            // Store the base speed and health
             enemy.setData('speed', enemySpeed);
+            enemy.setData('health', 3);
         }
 
         // Add collision between enemies and walls
         this.physics.add.collider(this.enemies, this.walls);
 
         console.log('Spawned', this.enemySpawnPoints.length, 'enemies');
+    }
+
+    damageEnemy(enemy: Phaser.Physics.Arcade.Image, damage: number) {
+        const currentHealth = enemy.getData('health') || 0;
+        const newHealth = currentHealth - damage;
+        enemy.setData('health', newHealth);
+
+        console.log('[ENEMY] Enemy damaged! Health:', currentHealth, '->', newHealth);
+
+        // Flash enemy to indicate damage
+        this.tweens.add({
+            targets: enemy,
+            alpha: 0.5,
+            duration: 50,
+            yoyo: true,
+            repeat: 0,
+            onComplete: () => { enemy.setAlpha(1); }
+        });
+
+        // Check if enemy is defeated
+        if (newHealth <= 0) {
+            this.remainingEnemies--;
+            console.log('[ENEMY] Enemy defeated! Remaining:', this.remainingEnemies);
+            enemy.destroy();
+
+            // Open doors when all enemies defeated
+            if (this.remainingEnemies <= 0) {
+                this.openDoors();
+            }
+        }
+    }
+
+    openDoors() {
+        console.log('[DOORS] All enemies defeated! Opening doors...');
+
+        // Play door open sound
+        if (this.doorOpenSound) {
+            this.doorOpenSound.play();
+        }
+
+        // Change all door sprites to open (use correct left/right sprite)
+        for (const doorSprite of this.doorSprites) {
+            const isLeft = doorSprite.getData('isLeft');
+            const openTexture = isLeft ? 'door-open-left' : 'door-open-right';
+            doorSprite.setTexture(openTexture);
+        }
     }
 
     createTorches() {
@@ -558,6 +666,61 @@ export class Game extends Scene {
 
             console.log('Torch extinguished at', torchSprite.x, torchSprite.y);
         });
+    }
+
+    performBasicAttack() {
+        // Determine position in front of player based on current direction
+        let offsetX = 0;
+        let offsetY = 0;
+        const tileSize = 32; // Distance in front of player
+
+        // Use last movement direction to determine where to place slash
+        if (Math.abs(this.lastMoveX) > Math.abs(this.lastMoveY)) {
+            // Horizontal movement dominant
+            offsetX = this.lastMoveX > 0 ? tileSize : -tileSize;
+        } else {
+            // Vertical movement dominant (or no movement - default to down)
+            offsetY = this.lastMoveY > 0 ? tileSize : (this.lastMoveY < 0 ? -tileSize : tileSize);
+        }
+
+        const slashX = this.player.x + offsetX;
+        const slashY = this.player.y + offsetY;
+
+        if (this.slashSound) this.slashSound.play();
+        // Create slash sprite
+        const slash = this.physics.add.sprite(slashX, slashY, 'slash') as Phaser.Physics.Arcade.Sprite;
+        slash.setScale(2.0);
+        slash.setDepth(5); // Below player but above background
+        slash.setData('hit', false);
+
+        // Add collision with enemies
+        const slashHitEnemy = (slashObj: Phaser.GameObjects.GameObject, enemy: Phaser.GameObjects.GameObject) => {
+            const slashSprite = slashObj as Phaser.Physics.Arcade.Sprite;
+
+            // Only hit once
+            if (slashSprite.getData('hit')) return;
+            slashSprite.setData('hit', true);
+
+            // Disable physics body to prevent further collisions
+            if (slashSprite.body) {
+                (slashSprite.body as Phaser.Physics.Arcade.Body).enable = false;
+            }
+
+            const enemySprite = enemy as Phaser.Physics.Arcade.Image;
+            console.log('[SLASH] Hit enemy at', enemySprite.x, enemySprite.y);
+            this.damageEnemy(enemySprite, 2); // Slash does 2 damage
+        };
+
+        this.physics.add.overlap(slash, this.enemies, slashHitEnemy as any, undefined, this);
+
+        // Destroy slash after 100ms
+        this.time.delayedCall(100, () => {
+            if (slash && slash.active) {
+                slash.destroy();
+            }
+        });
+
+        console.log('[SLASH] Basic attack at', slashX, slashY);
     }
 
     // Color mapping for each mask (mask number -> hex color)
@@ -718,10 +881,17 @@ export class Game extends Scene {
                     if (lifetimeTimer) lifetimeTimer.remove(false);
                 };
 
+                // Special handler for enemy hits - deals 1 damage
+                const handleEnemyHit = (proj: Phaser.GameObjects.GameObject, enemy: Phaser.GameObjects.GameObject) => {
+                    const enemySprite = enemy as Phaser.Physics.Arcade.Image;
+                    this.damageEnemy(enemySprite, 1); // Fire does 1 damage
+                    handleHit(proj, enemy); // Then trigger normal hit behavior
+                };
+
                 // collide with walls, doors, enemies and world bounds
                 if (this.walls) this.physics.add.collider(fire, this.walls, handleHit as any, undefined, this);
                 if (this.doors) this.physics.add.collider(fire, this.doors, handleHit as any, undefined, this);
-                if (this.enemies) this.physics.add.collider(fire, this.enemies, handleHit as any, undefined, this);
+                if (this.enemies) this.physics.add.collider(fire, this.enemies, handleEnemyHit as any, undefined, this);
                 // Fire can light torches
                 if (this.torches) this.physics.add.overlap(fire, this.torches, this.onFireHitTorch as any, undefined, this);
 
@@ -827,6 +997,12 @@ export class Game extends Scene {
         // Ignore door collisions if player just spawned on a door
         if (this.justSpawnedOnDoor) return;
 
+        // Prevent door usage if enemies remain
+        if (this.remainingEnemies > 0) {
+            console.log('[DOOR] Doors locked! Defeat all enemies first. Remaining:', this.remainingEnemies);
+            return;
+        }
+
         // Prevent multiple transitions
         if (this.isTransitioning) return;
         this.isTransitioning = true;
@@ -877,6 +1053,12 @@ export class Game extends Scene {
         // Clear existing walls and doors
         this.walls.clear(true, true);
         this.doors.clear(true, true);
+
+        // Destroy all door sprites from previous level
+        if (this.doorSprites) {
+            this.doorSprites.forEach(sprite => sprite.destroy());
+            this.doorSprites = [];
+        }
 
         // Clear all light sources from previous level
         this.masks.lightSources = [];
@@ -1023,6 +1205,24 @@ export class Game extends Scene {
             if (this.physics.world.debugGraphic) {
                 this.physics.world.debugGraphic.visible = this.debugMode;
             }
+
+            // Toggle player collision
+            if (this.debugMode) {
+                // Disable collision in debug mode
+                this.player.setCollideWorldBounds(false);
+                if (this.player.body) {
+                    (this.player.body as Phaser.Physics.Arcade.Body).checkCollision.none = true;
+                }
+                console.log('[DEBUG] Player collision DISABLED');
+            } else {
+                // Re-enable collision when debug mode off
+                this.player.setCollideWorldBounds(true);
+                if (this.player.body) {
+                    (this.player.body as Phaser.Physics.Arcade.Body).checkCollision.none = false;
+                }
+                console.log('[DEBUG] Player collision ENABLED');
+            }
+
             console.log('[DEBUG] Debug mode:', this.debugMode ? 'ON' : 'OFF');
         }
 
