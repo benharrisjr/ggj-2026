@@ -81,6 +81,11 @@ export class Preloader extends Scene
         this.load.audio('slashSound', 'audio/slash.wav');
         this.load.audio('health', 'audio/health.wav');
 
+        // Music tracks
+        this.load.audio('menuMusic', 'audio/music/menu.mp3');
+        this.load.audio('levelMusic', 'audio/music/level.mp3');
+        this.load.audio('bossMusic', 'audio/music/boss.mp3');
+
         // UI - Health hearts
         this.load.image('heart', 'heart.png');
         this.load.image('heart-half', 'heart-half.png');
@@ -137,6 +142,6 @@ export class Preloader extends Scene
         //  For example, you can define global animations here, so we can use them in other scenes.
 
         //  Move to the MainMenu. You could also swap this for a Scene Transition, such as a camera fade.
-        this.scene.start('Game');
+        this.scene.start('MainMenu');
     }
 }
