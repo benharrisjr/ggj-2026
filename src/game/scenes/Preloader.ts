@@ -49,9 +49,33 @@ export class Preloader extends Scene
         this.load.image('body-front', 'body-front.png');
         this.load.image('body-back', 'body-back.png');
         this.load.image('body-profile', 'body-profile.png');
+
+        // Mask head sprites (colored variants)
+        this.load.image('head-blue-front', 'Sprite-Masks-Blue-Front.png');
+        this.load.image('head-blue-back', 'Sprite-Masks-Blue-Back.png');
+        this.load.image('head-blue-profile', 'Sprite-Masks-Blue-Profile.png');
+        this.load.image('head-red-front', 'Sprite-Masks-Red-Front.png');
+        this.load.image('head-red-back', 'Sprite-Masks-Red-Back.png');
+        this.load.image('head-red-profile', 'Sprite-Masks-Red-Profile.png');
+        this.load.image('head-green-front', 'Sprite-Masks-Green-Front.png');
+        this.load.image('head-green-back', 'Sprite-Masks-Green-Back.png');
+        this.load.image('head-green-profile', 'Sprite-Masks-Green-Profile.png');
         this.load.image('enemy', 'Tiles/tile_0108.png');
         this.load.image('enemy2', 'kpop-demon.png');
         this.load.image('enemy3', 'bubbly-sheep.png');
+
+        // New directional enemy sprites
+        this.load.image('enemy-blue-front', 'Sprite-Enemy-Blue-Front.png');
+        this.load.image('enemy-blue-back', 'Sprite-Enemy-Blue-Back.png');
+        this.load.image('enemy-blue-profile', 'Sprite-Enemy-Blue-Profile.png');
+        this.load.image('enemy-red-front', 'Sprite-Enemy-Red-Front.png');
+        this.load.image('enemy-red-back', 'Sprite-Enemy-Red-Back.png');
+        this.load.image('enemy-red-profile', 'Sprite-Enemy-Red-Profile.png');
+
+        // Boss enemy sprites
+        this.load.image('demon-front', 'demon-front.png');
+        this.load.image('demon-back', 'demon-back.png');
+        this.load.image('demon-profile', 'demon-profile.png');
 
         // Level 0 assets
         this.load.image('level_0', 'Level_0/Tiles.png');
@@ -83,8 +107,10 @@ export class Preloader extends Scene
 
         // Music tracks
         this.load.audio('menuMusic', 'audio/music/menu.mp3');
-        this.load.audio('levelMusic', 'audio/music/level.mp3');
+        this.load.audio('levelMusic', 'audio/music/stealth_action.mp3');
+        this.load.audio('levelMusicLoop', 'audio/music/stealth_action_loop.mp3');
         this.load.audio('bossMusic', 'audio/music/boss.mp3');
+        this.load.audio('bossDefeat', 'audio/boss-defeat.mp3');
 
         // UI - Health hearts
         this.load.image('heart', 'heart.png');

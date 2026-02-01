@@ -2,7 +2,6 @@ import { Scene } from 'phaser';
 import { Masks } from '../systems/masks/masks';
 import { Ability } from '../systems/abilities/abilities';
 import { UI } from '../systems/ui/ui';
-import ColorReplacePipelinePlugin from 'phaser3-rex-plugins/plugins/colorreplacepipeline-plugin.js';
 
 // Door color mapping: RGB color -> target level
 // Add new colors here to create doors to different levels
@@ -24,6 +23,7 @@ const DOOR_COLORS: { r: number; g: number; b: number; targetLevel: number }[] = 
 // Special tile colors
 const PLAYER_SPAWN_COLOR = { r: 99, g: 199, b: 77 };   // #63C74D - player spawn
 const ENEMY_SPAWN_COLOR = { r: 215, g: 67, b: 207 };   // #D743CF - enemy spawn
+const BOSS_SPAWN_COLOR = { r: 172, g: 50, b: 50 };     // #AC3232 - boss spawn
 
 
 // #0099DB chest
@@ -61,7 +61,6 @@ export class Game extends Scene {
     playerContainer: Phaser.GameObjects.Container;
     playerHead: Phaser.GameObjects.Image;
     playerBody: Phaser.GameObjects.Image;
-    headColorReplace: any; // ColorReplace pipeline instance
     enemies: Phaser.Physics.Arcade.Group;
     walls: Phaser.Physics.Arcade.StaticGroup;
     doors: Phaser.Physics.Arcade.StaticGroup;
@@ -69,7 +68,9 @@ export class Game extends Scene {
     doorSprites: Phaser.GameObjects.Image[];
     playerSpawnPoint: SpawnPoint | null;
     enemySpawnPoints: SpawnPoint[];
+    bossSpawnPoints: SpawnPoint[];
     torchSpawnPoints: SpawnPoint[];
+    boss: Phaser.Physics.Arcade.Image | null = null;
     invisibleWalls: Phaser.GameObjects.Image[];
     cursors: Phaser.Types.Input.Keyboard.CursorKeys;
     wasd: { up: Phaser.Input.Keyboard.Key; down: Phaser.Input.Keyboard.Key; left: Phaser.Input.Keyboard.Key; right: Phaser.Input.Keyboard.Key };
@@ -129,6 +130,7 @@ export class Game extends Scene {
     torches: Phaser.Physics.Arcade.StaticGroup;
     // Music
     levelMusic: Phaser.Sound.BaseSound;
+    levelMusicLoop: Phaser.Sound.BaseSound;
     bossMusic: Phaser.Sound.BaseSound;
     isBossMusicPlaying: boolean = false;
     // Barrels
@@ -156,8 +158,12 @@ export class Game extends Scene {
         // Stop all existing sounds and play level music (looping)
         this.sound.stopAll();
         this.levelMusic = this.sound.add('levelMusic', { loop: true, volume: 0.4 });
+        this.levelMusicLoop = this.sound.add('levelMusicLoop', { loop: true, volume: 0.4 });
         this.bossMusic = this.sound.add('bossMusic', { loop: true, volume: 0.5 });
         this.levelMusic.play();
+        this.levelMusic.on('complete', () => {
+            this.levelMusicLoop.play();
+        });
         this.isBossMusicPlaying = false;
 
         // Create background at origin (0,0)
@@ -199,16 +205,6 @@ export class Game extends Scene {
 
         // Add to container (order matters: body first, then head on top)
         this.playerContainer.add([this.playerBody, this.playerHead]);
-
-        // Set up ColorReplace shader on head
-        const colorReplacePipeline = (this.plugins.get('rexColorReplacePipeline') as ColorReplacePipelinePlugin);
-        if (colorReplacePipeline) {
-            this.headColorReplace = colorReplacePipeline.add(this.playerHead, {
-                originalColor: 0x000000,  // Color to replace (black by default)
-                newColor: 0x000000,       // New color (same by default)
-                epsilon: 0.4              // Color matching tolerance
-            });
-        }
 
         // Camera follows player
         this.camera.startFollow(this.player, true, 0.1, 0.1);
@@ -364,8 +360,8 @@ export class Game extends Scene {
                 console.log('[MASK] No ability mapping for mask:', mask);
             }
 
-            // Update head color based on mask
-            this.updateHeadColor(mask);
+            // Update head sprite based on mask
+            this.updateHeadSprite(mask);
         });
 
         // Setup UI (health, mask display, touch controls)
@@ -424,6 +420,7 @@ export class Game extends Scene {
         this.doorSprites = [];
         this.playerSpawnPoint = null;
         this.enemySpawnPoints = [];
+        this.bossSpawnPoints = [];
         this.torchSpawnPoints = [];
         this.barrelSpawnPoints = [];
         this.invisibleWalls = [];
@@ -481,6 +478,15 @@ export class Game extends Scene {
                     Math.abs(b - ENEMY_SPAWN_COLOR.b) < colorTolerance) {
                     this.enemySpawnPoints.push({ x: worldX, y: worldY });
                     console.log('Found enemy spawn point:', worldX, worldY);
+                    continue;
+                }
+
+                // Check for boss spawn point (#AC3232)
+                if (Math.abs(r - BOSS_SPAWN_COLOR.r) < colorTolerance &&
+                    Math.abs(g - BOSS_SPAWN_COLOR.g) < colorTolerance &&
+                    Math.abs(b - BOSS_SPAWN_COLOR.b) < colorTolerance) {
+                    this.bossSpawnPoints.push({ x: worldX, y: worldY });
+                    console.log('Found boss spawn point:', worldX, worldY);
                     continue;
                 }
 
@@ -614,14 +620,19 @@ export class Game extends Scene {
         // Set remaining enemies count
         this.remainingEnemies = this.enemySpawnPoints.length;
 
-        const enemySprites = ['enemy', 'enemy2', 'enemy3'];
+        const enemyTypes = ['blue', 'red'];
         const enemySpeed = 60;
 
-        // Spawn enemy at each spawn point with random sprite
+        // Spawn enemy at each spawn point with random type
         for (const spawn of this.enemySpawnPoints) {
-            const randomSprite = enemySprites[Math.floor(Math.random() * enemySprites.length)];
-            const enemy = this.enemies.create(spawn.x, spawn.y, randomSprite) as Phaser.Physics.Arcade.Image;
-            enemy.setScale(2.0);
+            const randomType = enemyTypes[Math.floor(Math.random() * enemyTypes.length)];
+            const enemySprite = `enemy-${randomType}-front`; // Start with front sprite
+            const enemy = this.enemies.create(spawn.x, spawn.y, enemySprite) as Phaser.Physics.Arcade.Image;
+            if (randomType === 'blue') {
+                enemy.setScale(3.0);
+            } else {
+                enemy.setScale(2.0);
+            }
             enemy.setCollideWorldBounds(true);
             enemy.setBounce(1, 1);
 
@@ -632,9 +643,14 @@ export class Game extends Scene {
                 Math.sin(angle) * enemySpeed
             );
 
-            // Store the base speed and health
+            // Store the base speed, health, and type
             enemy.setData('speed', enemySpeed);
-            enemy.setData('health', 3);
+            enemy.setData('enemyType', randomType); // Store type for sprite updates
+            enemy.setData('currentDirection', 'front');
+
+            // Blue enemy has 4 health, red has 2
+            const health = randomType === 'blue' ? 4 : 2;
+            enemy.setData('health', health);
         }
 
         // Add collision between enemies and walls
@@ -643,20 +659,186 @@ export class Game extends Scene {
         console.log('Spawned', this.enemySpawnPoints.length, 'enemies');
     }
 
-    damageEnemy(enemy: Phaser.Physics.Arcade.Image, damage: number) {
+    spawnBoss() {
+        // Only spawn boss in level_2
+        if (this.currentLevel !== 2) {
+            console.log('[BOSS] Not in level_2, skipping boss spawn');
+            return;
+        }
+
+        // Destroy existing boss if any
+        if (this.boss) {
+            this.boss.destroy();
+            this.boss = null;
+        }
+
+        // Hardcoded spawn position for now
+        const spawnX = 352;
+        const spawnY = 288;
+        const bossSpeed = 80;
+
+        // Create boss enemy
+        this.boss = this.physics.add.image(spawnX, spawnY, 'demon-front');
+        this.boss.setScale(4.0);
+        this.boss.setCollideWorldBounds(true);
+        this.boss.setDepth(5);
+
+        // Store boss-specific data
+        this.boss.setData('speed', bossSpeed);
+        this.boss.setData('health', 10);
+        this.boss.setData('isBoss', true);
+        this.boss.setData('frozen', false);
+        this.boss.setData('frozenTime', 0);
+        this.boss.setData('currentDirection', 'front');
+
+        // Add collision between boss and walls
+        this.physics.add.collider(this.boss, this.walls);
+
+        // Add overlap for player damage
+        this.physics.add.overlap(this.player, this.boss, this.onBossCollision as any, undefined, this);
+
+        console.log('[BOSS] Spawned boss at', spawnX, spawnY);
+    }
+
+    onBossCollision(_player: Phaser.GameObjects.GameObject, boss: Phaser.GameObjects.GameObject) {
+        const bossSprite = boss as Phaser.Physics.Arcade.Image;
+
+        // If dashing with damage enabled, damage the boss instead
+        if (this.isDashing && this.dashInflictsDamage && !this.dashHitEnemy) {
+            console.log('[DASH] Hit boss during dash attack!');
+            this.damageBoss(bossSprite, 1); // Dash attack does 1 damage to boss
+
+            // Mark that this dash has hit (use same flag for boss/enemy)
+            this.dashHitEnemy = true;
+
+            // Reset dash cooldown to allow immediate chaining
+            this.abilityLastUsed[Ability.DashAttack] = 0;
+            console.log('[DASH] Cooldown reset - can dash again!');
+            return;
+        }
+
+        // Don't take damage if invincible or transitioning or boss is frozen
+        if (this.isInvincible || this.isTransitioning || bossSprite.getData('frozen')) return;
+
+        // Take damage (boss does 2 damage)
+        this.playerHealth -= 2;
+        console.log('[BOSS] Player hit by boss! Health:', this.playerHealth);
+
+        // Play hurt sound
+        this.playerHurtSound.play();
+
+        // Screen shake (stronger for boss)
+        this.camera.shake(200, 0.02);
+
+        // Knockback - push player away from boss
+        const knockbackForce = 400;
+        const angle = Math.atan2(
+            this.player.y - bossSprite.y,
+            this.player.x - bossSprite.x
+        );
+        this.player.setVelocity(
+            Math.cos(angle) * knockbackForce,
+            Math.sin(angle) * knockbackForce
+        );
+        this.isKnockedBack = true;
+
+        this.time.delayedCall(200, () => {
+            this.isKnockedBack = false;
+        });
+
+        // Update health display
+        this.ui.updateHealthDisplay();
+
+        // Become invincible briefly
+        this.isInvincible = true;
+
+        // Flash player during invincibility
+        this.tweens.add({
+            targets: this.playerContainer,
+            alpha: 0.5,
+            duration: 100,
+            yoyo: true,
+            repeat: 5,
+            onComplete: () => {
+                this.isInvincible = false;
+                this.playerContainer.setAlpha(1);
+            }
+        });
+
+        // Check for death
+        if (this.playerHealth <= 0) {
+            this.onPlayerDeath();
+        }
+    }
+
+    getValidTeleportPosition(): { x: number; y: number } | null {
+        // Get level dimensions
+        const levelWidth = this.background.displayWidth;
+        const levelHeight = this.background.displayHeight;
+        const tileSize = 32;
+
+        // Try to find a valid position (not colliding with walls)
+        const maxAttempts = 50;
+        for (let i = 0; i < maxAttempts; i++) {
+            // Random position within level bounds
+            const x = Math.floor(Math.random() * (levelWidth / tileSize)) * tileSize + tileSize / 2;
+            const y = Math.floor(Math.random() * (levelHeight / tileSize)) * tileSize + tileSize / 2;
+
+            // Check if this position is not too close to player
+            const distToPlayer = Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y);
+            if (distToPlayer < 100) continue;
+
+            // Check if position overlaps with any wall
+            let isValid = true;
+            this.walls.getChildren().forEach((wall) => {
+                const wallSprite = wall as Phaser.Physics.Arcade.Image;
+                const dist = Phaser.Math.Distance.Between(x, y, wallSprite.x, wallSprite.y);
+                if (dist < tileSize) {
+                    isValid = false;
+                }
+            });
+
+            if (isValid) {
+                return { x, y };
+            }
+        }
+
+        return null;
+    }
+
+    damageEnemy(enemy: Phaser.Physics.Arcade.Image, damage: number, knockbackFromX?: number, knockbackFromY?: number) {
         const currentHealth = enemy.getData('health') || 0;
         const newHealth = currentHealth - damage;
         enemy.setData('health', newHealth);
 
         console.log('[ENEMY] Enemy damaged! Health:', currentHealth, '->', newHealth);
 
-        // Flash enemy to indicate damage
+        // Apply knockback if source position provided
+        if (knockbackFromX !== undefined && knockbackFromY !== undefined) {
+            const knockbackForce = 200;
+            const angle = Math.atan2(
+                enemy.y - knockbackFromY,
+                enemy.x - knockbackFromX
+            );
+            enemy.setVelocity(
+                Math.cos(angle) * knockbackForce,
+                Math.sin(angle) * knockbackForce
+            );
+
+            // Temporarily store that enemy is being knocked back
+            enemy.setData('knockedBack', true);
+            this.time.delayedCall(150, () => {
+                enemy.setData('knockedBack', false);
+            });
+        }
+
+        // Flash enemy to indicate damage (multiple flashes like player)
         this.tweens.add({
             targets: enemy,
-            alpha: 0.5,
-            duration: 50,
+            alpha: 0.3,
+            duration: 80,
             yoyo: true,
-            repeat: 0,
+            repeat: 2,
             onComplete: () => { enemy.setAlpha(1); }
         });
 
@@ -670,6 +852,51 @@ export class Game extends Scene {
             if (this.remainingEnemies <= 0) {
                 this.openDoors();
             }
+        }
+    }
+
+    damageBoss(boss: Phaser.Physics.Arcade.Image, damage: number) {
+        const currentHealth = boss.getData('health') || 0;
+        const newHealth = currentHealth - damage;
+        boss.setData('health', newHealth);
+
+        console.log('[BOSS] Boss damaged! Health:', currentHealth, '->', newHealth);
+
+        // Flash boss to indicate damage
+        this.tweens.add({
+            targets: boss,
+            alpha: 0.5,
+            duration: 50,
+            yoyo: true,
+            repeat: 2,
+            onComplete: () => { boss.setAlpha(1); }
+        });
+
+        // Screen shake on boss hit
+        this.camera.shake(100, 0.005);
+
+        // Check if boss is defeated
+        if (newHealth <= 0) {
+            console.log('[BOSS] Boss defeated!');
+            boss.destroy();
+            this.boss = null;
+
+            // Stop boss music and play boss defeat sound
+            try {
+                if (this.bossMusic && this.bossMusic.isPlaying) {
+                    this.bossMusic.stop();
+                }
+            } catch (e) {
+                // ignore if sound not available
+            }
+            // Play boss defeat jingle (loaded in Preloader as 'bossDefeat')
+            if (this.sound) {
+                this.sound.play('bossDefeat', { volume: 0.6 });
+            }
+            this.isBossMusicPlaying = false;
+
+            // Open doors when boss defeated
+            this.openDoors();
         }
     }
 
@@ -877,12 +1104,15 @@ export class Game extends Scene {
 
         console.log('[BOSS] Lit torches:', litCount, '/', this.torches.getChildren().length);
 
-        // If all 4 torches are lit, start boss music (one-time switch)
+        // If all 4 torches are lit, start boss music and spawn boss (one-time switch)
         if (litCount >= 4) {
-            console.log('[BOSS] All torches lit! Starting boss music!');
+            console.log('[BOSS] All torches lit! Starting boss music and spawning boss!');
             this.levelMusic.stop();
             this.bossMusic.play();
             this.isBossMusicPlaying = true;
+
+            // Spawn the boss
+            this.spawnBoss();
         }
     }
 
@@ -975,7 +1205,7 @@ export class Game extends Scene {
 
             const enemySprite = enemy as Phaser.Physics.Arcade.Image;
             console.log('[SLASH] Hit enemy at', enemySprite.x, enemySprite.y);
-            this.damageEnemy(enemySprite, 2); // Slash does 2 damage
+            this.damageEnemy(enemySprite, 2, slashSprite.x, slashSprite.y); // Slash does 2 damage with knockback
         };
 
         // Add collision with barrels
@@ -999,6 +1229,22 @@ export class Game extends Scene {
         this.physics.add.overlap(slash, this.enemies, slashHitEnemy as any, undefined, this);
         this.physics.add.overlap(slash, this.barrels, slashHitBarrel as any, undefined, this);
 
+        // Add collision with boss
+        if (this.boss) {
+            const slashHitBoss = (slashObj: Phaser.GameObjects.GameObject, bossObj: Phaser.GameObjects.GameObject) => {
+                const slashSprite = slashObj as Phaser.Physics.Arcade.Sprite;
+                if (slashSprite.getData('hit')) return;
+                slashSprite.setData('hit', true);
+                if (slashSprite.body) {
+                    (slashSprite.body as Phaser.Physics.Arcade.Body).enable = false;
+                }
+                const bossSprite = bossObj as Phaser.Physics.Arcade.Image;
+                console.log('[SLASH] Hit boss at', bossSprite.x, bossSprite.y);
+                this.damageBoss(bossSprite, 2); // Slash does 2 damage to boss
+            };
+            this.physics.add.overlap(slash, this.boss, slashHitBoss as any, undefined, this);
+        }
+
         // Destroy slash after 100ms
         this.time.delayedCall(100, () => {
             if (slash && slash.active) {
@@ -1009,29 +1255,39 @@ export class Game extends Scene {
         console.log('[SLASH] Basic attack at', slashX, slashY);
     }
 
-    // Color mapping for each mask (mask number -> hex color)
-    updateHeadColor(mask: number) {
-        if (!this.headColorReplace) return;
-
-        // Define colors for each mask
-        const maskColors: Record<number, number> = {
-            0: 0x000000,    // Default - no change (black to black)
-            1: 0x00FFFF,    // Dash - cyan
-            2: 0xFF4400,    // Attack - orange/fire
-            3: 0x00FF00,    // Interact - green
-            4: 0xFF00FF,    // Special - magenta
-            5: 0xFFFFFF,    // Transformation - white
+    // Get head texture based on direction and current mask
+    getHeadTexture(direction: string): string {
+        // Map mask to color prefix
+        const maskColorMap: Record<number, string> = {
+            1: 'blue',   // DashAttack
+            2: 'red',    // FireAttack
+            3: 'green',  // Interact
         };
 
-        const newColor = maskColors[mask] ?? 0x000000;
+        const color = maskColorMap[this.masks.mask];
 
-        // Update the ColorReplace shader
-        // originalColor is the color in the sprite to replace
-        // newColor is what to replace it with
-        this.headColorReplace.setOriginalColor(0x000000);  // Replace black pixels
-        this.headColorReplace.setNewColor(newColor);
+        // Build texture key
+        if (color) {
+            return `head-${color}-${direction}`;
+        }
+        return `head-${direction}`;
+    }
 
-        console.log('[HEAD COLOR] Mask', mask, '-> Color', newColor.toString(16));
+    // Update head sprite based on mask and current direction
+    updateHeadSprite(mask: number) {
+        // Get direction suffix based on current texture
+        let direction = 'front';
+        if (this.playerHead.texture.key.includes('back')) {
+            direction = 'back';
+        } else if (this.playerHead.texture.key.includes('profile')) {
+            direction = 'profile';
+        }
+
+        // Update the head sprite texture using the helper
+        const newTexture = this.getHeadTexture(direction);
+        this.playerHead.setTexture(newTexture);
+
+        console.log('[HEAD SPRITE] Mask', mask, '-> Texture', newTexture);
     }
 
     tryUseAbility() {
@@ -1136,7 +1392,8 @@ export class Game extends Scene {
                 // Special handler for enemy hits - deals 1 damage
                 const handleEnemyHit = (proj: Phaser.GameObjects.GameObject, enemy: Phaser.GameObjects.GameObject) => {
                     const enemySprite = enemy as Phaser.Physics.Arcade.Image;
-                    this.damageEnemy(enemySprite, 1); // Fire does 1 damage
+                    const fireSprite = proj as Phaser.Physics.Arcade.Sprite;
+                    this.damageEnemy(enemySprite, 1, fireSprite.x, fireSprite.y); // Fire does 1 damage with knockback
                     handleHit(proj, enemy); // Then trigger normal hit behavior
                 };
 
@@ -1225,7 +1482,7 @@ export class Game extends Scene {
         if (this.isDashing && this.dashInflictsDamage && !this.dashHitEnemy) {
             const enemySprite = enemy as Phaser.Physics.Arcade.Image;
             console.log('[DASH] Hit enemy during dash attack!');
-            this.damageEnemy(enemySprite, 1); // Dash attack does 1 damage
+            this.damageEnemy(enemySprite, 1, this.player.x, this.player.y); // Dash attack does 1 damage with knockback
 
             // Mark that this dash has hit an enemy
             this.dashHitEnemy = true;
@@ -1337,6 +1594,13 @@ export class Game extends Scene {
             ease: 'Power2',
             onComplete: () => {
                 // Execute level transition during black screen
+                // If we're currently in level_2, entering a door should go to the Credits scene
+                if (this.currentLevel === 2) {
+                    // Start the Credits scene instead of loading another level
+                    this.scene.start('Credits');
+                    return;
+                }
+
                 this.loadLevel(targetLevel);
 
                 // Camera snap for extra safety
@@ -1380,6 +1644,12 @@ export class Game extends Scene {
 
         // Clear all light sources from previous level
         this.masks.lightSources = [];
+
+        // Destroy boss from previous level
+        if (this.boss) {
+            this.boss.destroy();
+            this.boss = null;
+        }
 
         // Reset boss music state when changing levels
         if (this.isBossMusicPlaying) {
@@ -1680,21 +1950,21 @@ export class Game extends Scene {
             const deadzone = 0.01;
             if (input.y < -deadzone) {
                 // Moving up - show back
-                this.playerHead.setTexture('head-back');
+                this.playerHead.setTexture(this.getHeadTexture('back'));
                 this.playerBody.setTexture('body-back');
                 this.playerHead.setFlipX(false);
                 this.playerBody.setFlipX(false);
                 this.currentPlayerDirection = 'up';
             } else if (input.y > deadzone) {
                 // Moving down - show front
-                this.playerHead.setTexture('head-front');
+                this.playerHead.setTexture(this.getHeadTexture('front'));
                 this.playerBody.setTexture('body-front');
                 this.playerHead.setFlipX(false);
                 this.playerBody.setFlipX(false);
                 this.currentPlayerDirection = 'down';
             } else if (Math.abs(input.x) > deadzone) {
                 // Moving horizontally - show profile
-                this.playerHead.setTexture('head-profile');
+                this.playerHead.setTexture(this.getHeadTexture('profile'));
                 this.playerBody.setTexture('body-profile');
                 // Flip sprite based on direction
                 this.playerHead.setFlipX(input.x > 0);

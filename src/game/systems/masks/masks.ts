@@ -339,6 +339,11 @@ export class Masks {
                     enemySprite.setData('frozen', false);
                 }
 
+                // Skip movement if enemy is being knocked back
+                if (enemySprite.getData('knockedBack')) {
+                    return;
+                }
+
                 // Calculate distance to player
                 const distToPlayer = Phaser.Math.Distance.Between(
                     enemySprite.x, enemySprite.y,
@@ -352,26 +357,137 @@ export class Masks {
                 const inRange = distToPlayer <= chaseRange;
                 const shouldChase = inRange && Math.random() < 0.7;
 
+                let vx = 0;
+                let vy = 0;
+
                 if (shouldChase) {
                     // Move towards player
                     const angle = Math.atan2(
                         this.player.y - enemySprite.y,
                         this.player.x - enemySprite.x
                     );
-                    enemySprite.setVelocity(
-                        Math.cos(angle) * speed,
-                        Math.sin(angle) * speed
-                    );
+                    vx = Math.cos(angle) * speed;
+                    vy = Math.sin(angle) * speed;
                 } else {
                     // Random direction
                     const randomAngle = Math.random() * Math.PI * 2;
-                    enemySprite.setVelocity(
-                        Math.cos(randomAngle) * speed,
-                        Math.sin(randomAngle) * speed
-                    );
+                    vx = Math.cos(randomAngle) * speed;
+                    vy = Math.sin(randomAngle) * speed;
+                }
+
+                enemySprite.setVelocity(vx, vy);
+
+                // Update enemy sprite based on movement direction
+                const enemyType = enemySprite.getData('enemyType');
+                if (enemyType) {
+                    const deadzone = 0.3;
+                    if (vy < -deadzone * speed) {
+                        // Moving up - show back
+                        enemySprite.setTexture(`enemy-${enemyType}-back`);
+                        enemySprite.setFlipX(false);
+                    } else if (vy > deadzone * speed) {
+                        // Moving down - show front
+                        enemySprite.setTexture(`enemy-${enemyType}-front`);
+                        enemySprite.setFlipX(false);
+                    } else if (Math.abs(vx) > deadzone * speed) {
+                        // Moving horizontally - show profile
+                        enemySprite.setTexture(`enemy-${enemyType}-profile`);
+                        enemySprite.setFlipX(vx > 0); // Flip based on direction
+                    }
                 }
             }
         });
+
+        // Check boss separately
+        this.checkBoss();
+    }
+
+    checkBoss() {
+        const boss = this.game.boss;
+        if (!boss || !boss.active) return;
+
+        const wasVisible = boss.visible;
+        const bossInMask = this.isPointInMask(boss.x, boss.y);
+        boss.setVisible(bossInMask);
+
+        // Play spotted sound when boss becomes visible
+        if (bossInMask && !wasVisible) {
+            this.game.enemySpottedSound.play();
+        }
+
+        // Check if boss is behind the player
+        const angleToEnemy = Math.atan2(
+            boss.y - this.player.y,
+            boss.x - this.player.x
+        );
+        const playerForward = this.game.playerAngle - Math.PI;
+        let angleDiff = angleToEnemy - playerForward;
+        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+        const isBehindPlayer = Math.abs(angleDiff) > Math.PI / 2;
+
+        const speed = boss.getData('speed') || 80;
+        const deltaTime = this.game.sys.game.loop.delta; // ms since last frame
+
+        // Freeze boss when in player's view AND in front of player
+        if (bossInMask && !isBehindPlayer) {
+            // Store current velocity before freezing (if not already frozen)
+            if (!boss.getData('frozen')) {
+                boss.setData('savedVelocityX', boss.body?.velocity.x || 0);
+                boss.setData('savedVelocityY', boss.body?.velocity.y || 0);
+                boss.setData('frozen', true);
+                boss.setData('frozenTime', 0);
+                console.log('[BOSS] Boss frozen!');
+            }
+            boss.setVelocity(0, 0);
+
+            // Track frozen time
+            const frozenTime = (boss.getData('frozenTime') || 0) + deltaTime;
+            boss.setData('frozenTime', frozenTime);
+
+            // Teleport after 1 second of being frozen
+            if (frozenTime >= 1000) {
+                console.log('[BOSS] Boss teleporting after 1s frozen!');
+                const newPos = this.game.getValidTeleportPosition();
+                if (newPos) {
+                    boss.setPosition(newPos.x, newPos.y);
+                    boss.setData('frozen', false);
+                    boss.setData('frozenTime', 0);
+                    console.log('[BOSS] Boss teleported to', newPos.x, newPos.y);
+                }
+            }
+        } else {
+            // Restore movement when out of view
+            if (boss.getData('frozen')) {
+                boss.setData('frozen', false);
+                boss.setData('frozenTime', 0);
+            }
+
+            // Always chase player
+            const angle = Math.atan2(
+                this.player.y - boss.y,
+                this.player.x - boss.x
+            );
+            const vx = Math.cos(angle) * speed;
+            const vy = Math.sin(angle) * speed;
+            boss.setVelocity(vx, vy);
+
+            // Update boss sprite based on movement direction
+            const deadzone = 0.3;
+            if (vy < -deadzone * speed) {
+                // Moving up - show back
+                boss.setTexture('demon-back');
+                boss.setFlipX(false);
+            } else if (vy > deadzone * speed) {
+                // Moving down - show front
+                boss.setTexture('demon-front');
+                boss.setFlipX(false);
+            } else if (Math.abs(vx) > deadzone * speed) {
+                // Moving horizontally - show profile
+                boss.setTexture('demon-profile');
+                boss.setFlipX(vx > 0); // Flip based on direction
+            }
+        }
     }
 
     getTrianglePoints(x: number, y: number, angle: number, size: number): { p1: { x: number; y: number }; p2: { x: number; y: number }; p3: { x: number; y: number } } {

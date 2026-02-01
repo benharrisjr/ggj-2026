@@ -1,6 +1,6 @@
 import { Scene, GameObjects } from 'phaser';
 
-export class MainMenu extends Scene
+export class Credits extends Scene
 {
     background: GameObjects.Image;
     logo: GameObjects.Image;
@@ -20,18 +20,11 @@ export class MainMenu extends Scene
     gamepadMessage: Phaser.GameObjects.Text;
     previousButtonState: boolean = false;
     menuMusic: Phaser.Sound.BaseSound;
-    maskGraphics: GameObjects.Graphics;
-    maskOverlay: GameObjects.Graphics;
-    // Color tweening fields
-    colors: string[];
-    currentColorIndex: number = 0;
-    colorTweenObj: { t: number } | null = null;
-    colorTweenActive: boolean = false;
     
 
     constructor ()
     {
-        super('MainMenu');
+        super('Credits');
     }
 
     create ()
@@ -80,47 +73,26 @@ export class MainMenu extends Scene
         this.camera = this.cameras.main;
         this.camera.setZoom(1.0);
         this.background = this.add.image(320, 180, 'level_1').setScale(3.0);
-        this.title = this.add.text(320, 180, 'NINJA VISION', {
+        this.title = this.add.text(320, 60, 'Credits', {
             fontFamily: 'sans-serif', fontSize: 38, color: '#ffffff',
             stroke: '#000000', strokeThickness: 8,
             align: 'center'
         }).setOrigin(0.5).setScrollFactor(0);
 
-        // Create mask graphics for circle reveal
-        this.maskGraphics = this.make.graphics();
-        this.maskGraphics.fillStyle(0x000000);
-        this.maskGraphics.fillCircle(320, 180, 180); // Circle around title
-        this.maskGraphics.setScrollFactor(0);
 
-        // Create overlay that will be masked
-        this.maskOverlay = this.add.graphics();
-        this.maskOverlay.setDepth(50); // Above background, below UI text
-        this.maskOverlay.setScrollFactor(0);
-
-        // Apply bitmap mask to overlay (inverted so circle reveals content)
-        const mask = new Phaser.Display.Masks.BitmapMask(this, this.maskGraphics);
-        mask.invertAlpha = true;
-        this.maskOverlay.setMask(mask);
-
-        // initialize color cycle (white, blue, red, green, purple)
-        this.colors = ['#ffffff', '#0000ff', '#ff0000', '#00ff00', '#800080'];
-        this.currentColorIndex = 0;
-        // ensure initial color is set explicitly
-        this.title.setColor(this.colors[this.currentColorIndex]);
-
-        // Draw initial overlay with first color
-        this.updateOverlayColor('#000000');
-
-
-        this.startButton = this.add.text(320, 300, 'Press any button to start', {
+        this.startButton = this.add.text(300, 200, `
+            Benjamin Harris\n
+            Patricio Hendricks\n
+            Clo\n
+            Billy\n
+            SleezieTheSloth`, {
             fontFamily: 'sans-serif', fontSize: 16, color: '#ffffff',
             stroke: '#000000', strokeThickness: 8,
             align: 'center'
         }).setOrigin(0.5).setScrollFactor(0);
 
         this.input.once('pointerdown', () => {
-            this.menuMusic.stop();
-            this.scene.start('Game');
+            this.scene.start('MainMenu');
         });
 
         this.gameObject = this.add.container(0, 0);
@@ -141,9 +113,7 @@ export class MainMenu extends Scene
         if (this.gamepad) {
             const bPressed = !!(this.gamepad.buttons && this.gamepad.buttons[1] && this.gamepad.buttons[1].pressed);
             if (bPressed && !this.previousButtonState) {
-                console.log('[MENU] Gamepad B button pressed - starting game');
-                this.menuMusic.stop();
-                this.scene.start('Game');
+                this.scene.start('MainMenu');
             }
             this.previousButtonState = bPressed;
         }
@@ -160,70 +130,7 @@ export class MainMenu extends Scene
         if (this.angle > Math.PI * 2) {
             this.angle -= Math.PI * 2;
         }
-        // ---------- Title color tweening logic ----------
-        // Start a new tween when none is active. Tween interpolates from the
-        // current color to the next color in the `this.colors` array, then
-        // advances the index and allows the next tween to start on the next frame.
-        if (!this.colorTweenActive) {
-            const fromColor = this.colors[this.currentColorIndex];
-            const nextIndex = (this.currentColorIndex + 1) % this.colors.length;
-            const toColor = this.colors[nextIndex];
 
-            // object to tween a numeric parameter t from 0 -> 1
-            this.colorTweenObj = { t: 0 };
-            this.colorTweenActive = true;
-
-            this.tweens.add({
-                targets: this.colorTweenObj,
-                t: 1,
-                duration: 1800,
-                ease: 'Sine.easeInOut',
-                onUpdate: () => {
-                    if (!this.colorTweenObj) { return; }
-                    const t = this.colorTweenObj.t;
-                    const hex = this.interpolateColor(fromColor, toColor, t);
-                    this.title.setColor(hex);
-
-                    // Update mask overlay color to match
-                    // this.updateOverlayColor(hex);
-                },
-                onComplete: () => {
-                    this.currentColorIndex = nextIndex;
-                    this.colorTweenActive = false;
-                    this.colorTweenObj = null;
-                }
-            });
-        }
-
-    }
-
-    // Helper: linearly interpolate between two hex colors and return a hex string
-    interpolateColor(hex1: string, hex2: string, t: number): string {
-        const n1 = parseInt(hex1.replace('#', ''), 16);
-        const n2 = parseInt(hex2.replace('#', ''), 16);
-
-        const r1 = (n1 >> 16) & 0xff;
-        const g1 = (n1 >> 8) & 0xff;
-        const b1 = n1 & 0xff;
-
-        const r2 = (n2 >> 16) & 0xff;
-        const g2 = (n2 >> 8) & 0xff;
-        const b2 = n2 & 0xff;
-
-        const r = Math.round(r1 + (r2 - r1) * t);
-        const g = Math.round(g1 + (g2 - g1) * t);
-        const b = Math.round(b1 + (b2 - b1) * t);
-
-        const hex = ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
-        return `#${hex}`;
-    }
-
-    // Update the overlay color for the mask effect
-    updateOverlayColor(hex: string) {
-        const colorNum = parseInt(hex.replace('#', ''), 16);
-        this.maskOverlay.clear();
-        this.maskOverlay.fillStyle(colorNum, 0.8);
-        this.maskOverlay.fillRect(0, 0, 640, 360);
     }
 
 }
