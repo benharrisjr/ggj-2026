@@ -1,5 +1,19 @@
 import { Game } from "../../scenes/Game";
 
+// Color mapping for each mask (same as head colors in Game.ts)
+const MASK_COLORS: Record<number, number> = {
+    0: 0xFFFFFF,    // Default - white (no tint)
+    1: 0x00FFFF,    // Dash - cyan
+    2: 0xFF4400,    // Attack - orange/fire
+    3: 0x00FF00,    // Interact - green
+    4: 0xFF00FF,    // Special - magenta
+    5: 0xFFFFFF,    // Unused - white
+    6: 0xFFFFFF,    // Unused - white
+    7: 0xFFFFFF,    // Unused - white
+    8: 0xFFFFFF,    // Unused - white
+    9: 0xFFFFFF,    // Unused - white
+};
+
 export class UI {
     game: Game;
     heartSprites: Phaser.GameObjects.Image[] = [];
@@ -212,16 +226,18 @@ export class UI {
             this.maskValueText.setPosition(this.game.camera.width - pad, pad);
         }
 
-        // Update mask icon scales - scale up the selected one
+        // Update mask icon scales and tints - scale up and tint the selected one
         const selectedMask = this.game.masks.mask;
         for (let i = 0; i < this.maskIcons.length; i++) {
             const icon = this.maskIcons[i];
             if (i === selectedMask) {
-                // Selected mask - scale up
+                // Selected mask - scale up and apply color tint
                 icon.setScale(this.maskSelectedScale);
+                icon.setTint(MASK_COLORS[i] ?? 0xFFFFFF);
             } else {
-                // Unselected mask - normal scale
+                // Unselected mask - normal scale, no tint
                 icon.setScale(this.maskBaseScale);
+                icon.clearTint();
             }
         }
     }
