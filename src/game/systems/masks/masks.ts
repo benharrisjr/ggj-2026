@@ -445,11 +445,12 @@ export class Masks {
             const frozenTime = (boss.getData('frozenTime') || 0) + deltaTime;
             boss.setData('frozenTime', frozenTime);
 
-            // Teleport after 1 second of being frozen
-            if (frozenTime >= 1000) {
+            // Teleport after 2 second of being frozen
+            if (frozenTime >= 2000) {
                 console.log('[BOSS] Boss teleporting after 1s frozen!');
                 const newPos = this.game.getValidTeleportPosition();
                 if (newPos) {
+                    this.game.teleportSound.play();
                     boss.setPosition(newPos.x, newPos.y);
                     boss.setData('frozen', false);
                     boss.setData('frozenTime', 0);

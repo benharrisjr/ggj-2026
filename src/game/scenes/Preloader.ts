@@ -104,12 +104,14 @@ export class Preloader extends Scene
         this.load.audio('fireShoot', 'audio/Explosion13.wav');
         this.load.audio('slashSound', 'audio/slash.wav');
         this.load.audio('health', 'audio/health.wav');
+        this.load.audio('teleport', 'audio/teleport.wav');
 
         // Music tracks
         this.load.audio('menuMusic', 'audio/music/menu.mp3');
         this.load.audio('levelMusic', 'audio/music/stealth_action.mp3');
         this.load.audio('levelMusicLoop', 'audio/music/stealth_action_loop.mp3');
         this.load.audio('bossMusic', 'audio/music/boss.mp3');
+        this.load.audio('puzzleMusic', 'audio/music/puzzle.mp3');
         this.load.audio('bossDefeat', 'audio/boss-defeat.mp3');
 
         // UI - Health hearts

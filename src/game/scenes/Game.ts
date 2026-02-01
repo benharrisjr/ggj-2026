@@ -89,6 +89,7 @@ export class Game extends Scene {
     enemySpottedSound: Phaser.Sound.BaseSound;
     fireShootSound: Phaser.Sound.BaseSound;
     slashSound: Phaser.Sound.BaseSound;
+    teleportSound: Phaser.Sound.BaseSound;
     transitionOverlay: Phaser.GameObjects.Graphics;
     isInputAllowed: boolean = true;
 
@@ -132,6 +133,7 @@ export class Game extends Scene {
     levelMusic: Phaser.Sound.BaseSound;
     levelMusicLoop: Phaser.Sound.BaseSound;
     bossMusic: Phaser.Sound.BaseSound;
+    puzzleMusic: Phaser.Sound.BaseSound;
     isBossMusicPlaying: boolean = false;
     // Barrels
     barrels: Phaser.Physics.Arcade.StaticGroup;
@@ -149,6 +151,10 @@ export class Game extends Scene {
     }
 
     create() {
+        // Reset to level 0 when starting a new game
+        this.currentLevel = 0;
+        this.previousLevel = -1;
+
         this.game.canvas.style.cursor = 'none';
         this.physics.world.debugGraphic.visible = false;
         this.camera = this.cameras.main;
@@ -160,6 +166,7 @@ export class Game extends Scene {
         this.levelMusic = this.sound.add('levelMusic', { loop: true, volume: 0.4 });
         this.levelMusicLoop = this.sound.add('levelMusicLoop', { loop: true, volume: 0.4 });
         this.bossMusic = this.sound.add('bossMusic', { loop: true, volume: 0.5 });
+        this.puzzleMusic = this.sound.add('puzzleMusic', { loop: true, volume: 0.4 });
         this.levelMusic.play();
         this.levelMusic.on('complete', () => {
             this.levelMusicLoop.play();
@@ -239,6 +246,7 @@ export class Game extends Scene {
         this.enemySpottedSound = this.sound.add('enemySpotted', { volume: 0.3 });
         this.fireShootSound = this.sound.add('fireShoot', { volume: 0.5 });
         this.slashSound = this.sound.add('slashSound', { volume: 0.4 });
+        this.teleportSound = this.sound.add('teleport', { volume: 0.5 });
 
         // Pickup sounds
         this.healthPickupSound = this.sound.add('health', { volume: 0.5 });
@@ -1108,6 +1116,7 @@ export class Game extends Scene {
         if (litCount >= 4) {
             console.log('[BOSS] All torches lit! Starting boss music and spawning boss!');
             this.levelMusic.stop();
+            this.puzzleMusic.stop();
             this.bossMusic.play();
             this.isBossMusicPlaying = true;
 
@@ -1630,6 +1639,7 @@ export class Game extends Scene {
         this.walls.clear(true, true);
         this.doors.clear(true, true);
 
+
         // Destroy all door sprites from previous level
         if (this.doorSprites) {
             this.doorSprites.forEach(sprite => sprite.destroy());
@@ -1656,6 +1666,12 @@ export class Game extends Scene {
             this.bossMusic.stop();
             this.levelMusic.play();
             this.isBossMusicPlaying = false;
+        }
+
+        // Play puzzle music for level 2, otherwise normal level music
+        if (levelIndex === 2) {
+            this.sound.stopAll();
+            this.puzzleMusic.play({ loop: true, volume: 0.5 });
         }
 
         // Track level transition
@@ -1832,7 +1848,7 @@ export class Game extends Scene {
         }
 
         // Handle debug mode toggle with Escape key
-        if (Phaser.Input.Keyboard.JustDown(this.escapeKey)) {
+        if (Phaser.Input.Keyboard.JustDown(this.escapeKey) || (this.gamepad && this.gamepad.connected && this.gamepad.Y)) {
             this.debugMode = !this.debugMode;
             if (this.physics.world.debugGraphic) {
                 this.physics.world.debugGraphic.visible = this.debugMode;
