@@ -75,6 +75,7 @@ export class Preloader extends Scene
         this.load.audio('enemySpotted', 'audio/Randomize7.wav');
         this.load.audio('fireShoot', 'audio/Explosion13.wav');
         this.load.audio('slashSound', 'audio/slash.wav');
+        this.load.audio('health', 'audio/health.wav');
 
         // UI - Health hearts
         this.load.image('heart', 'heart.png');
@@ -109,12 +110,17 @@ export class Preloader extends Scene
         // Environment objects
         this.load.image('torch', 'torch.png');
         this.load.image('torch-lit', 'torch-lit.png');
+        this.load.image('barrel', 'Tiles/tile_0082.png');
+        this.load.image('health-potion', 'Tiles/tile_0115.png');
 
         // Door sprites (2 tiles wide)
         this.load.image('door-closed-left', 'Tiles/tile_0046.png');
         this.load.image('door-closed-right', 'Tiles/tile_0047.png');
         this.load.image('door-open-left', 'Tiles/tile_0034.png');
         this.load.image('door-open-right', 'Tiles/tile_0035.png');
+
+        // Invisible wall (revealed with mask 3)
+        this.load.image('invisible-wall', 'Tiles/tile_0048.png');
     }
 
     create ()

@@ -57,7 +57,7 @@ const MASK_SHAPES: Record<number, MaskShape[]> = {
     ],
     3: [
         // Interact: circle around player
-        { type: 'circle', size: 48 }
+        { type: 'circle', size: 96 }
     ],
     4: [
         // Special: multiple triangles (peripheral vision)
@@ -101,6 +101,7 @@ export class Masks {
 
         // Create overlay that covers the entire level (will be masked)
         this.overlay = game.add.graphics();
+        this.overlay.setDepth(100); // Above all game objects, below UI
         this.updateOverlayColor();
 
         this.gfx.fillStyle(0xffffff);
