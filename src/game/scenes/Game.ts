@@ -89,12 +89,14 @@ export class Game extends Scene {
     fireShootSound: Phaser.Sound.BaseSound;
     slashSound: Phaser.Sound.BaseSound;
     transitionOverlay: Phaser.GameObjects.Graphics;
+    isInputAllowed: boolean = true;
 
     // Health system
     playerHealth: number = 6;
     playerMaxHealth: number = 6;
     isInvincible: boolean = false;
     isKnockedBack: boolean = false;
+    isTransformed: boolean = false;
 
     gamepadMessage: Phaser.GameObjects.Text;
 
@@ -109,6 +111,7 @@ export class Game extends Scene {
     escapeKey: Phaser.Input.Keyboard.Key;
     previousGamepadAState: boolean = false;
     actionButtonPressed: boolean = false;
+
     // Last movement direction (unit vector) used for dash fallback
     lastMoveX: number = 0;
     lastMoveY: number = -1;
@@ -330,7 +333,8 @@ export class Game extends Scene {
                 1: Ability.Dash,
                 2: Ability.Attack,
                 3: Ability.Interact,
-                4: Ability.Special
+                4: Ability.Special,
+                5: Ability.Transformation,
             };
             if (mapping[mask] !== undefined) {
                 this.currentAbility = mapping[mask];
@@ -919,6 +923,7 @@ export class Game extends Scene {
             2: 0xFF4400,    // Attack - orange/fire
             3: 0x00FF00,    // Interact - green
             4: 0xFF00FF,    // Special - magenta
+            5: 0xFFFFFF,    // Transformation - white
         };
 
         const newColor = maskColors[mask] ?? 0x000000;
@@ -1101,6 +1106,48 @@ export class Game extends Scene {
                 console.log('[ABILITY] Executing Special');
                 // Placeholder for special ability
                 console.log('Used Special ability');
+                break;
+            }
+            case Ability.Transformation: {
+                console.log('[ABILITY] Executing Transformation');
+
+                // Stop movement and disable control temporarily
+                this.isInputAllowed = false;
+                this.isInvincible = true;
+                this.isTransformed = true;
+                this.player.setVelocity(0, 0);
+
+                // Enable control after timeout
+                this.time.delayedCall(1400, () => {
+                    this.isInputAllowed = true;
+                }, [], this);
+
+                // Create smoke effect on transform
+                const smokeAnimConfig:  Phaser.Types.Animations.Animation = {
+                    key: "smoke",
+                    frames: this.anims.generateFrameNumbers('smoke-fire', {frames: [0,1,2,3,4,5,6,7] }),
+                    frameRate: 16,
+                    repeat: 0,
+                    hideOnComplete: true,
+                }
+                this.anims.create(smokeAnimConfig);
+                let smokeSprite = this.add.sprite(this.player.x-4, this.player.y +4, 'smoke-fire');
+                smokeSprite.setDepth(100).setScale(5.0).play('smoke')
+                this.tweens.add({
+                    targets: smokeSprite,
+                    alpha: 0.5,
+                    duration: 1000,
+                    ease: 'Ease-out',
+                    repeat: 0
+                });
+
+                // Transform player sprite to random item
+                const TRANSFORMATION_ITEMS = ['player-transform-barrel', 'player-transform-tomb', 'player-transform-grave', 'player-transform-box']
+                const randomIndex = Math.floor(Math.random() * TRANSFORMATION_ITEMS.length);
+                this.playerBody.setTexture(TRANSFORMATION_ITEMS[randomIndex]);
+                this.playerHead.setVisible(false);
+
+                console.log('Used Transformation ability');
                 break;
             }
             default:
@@ -1321,6 +1368,7 @@ export class Game extends Scene {
         let x = 0;
         let y = 0;
 
+        if (!this.input.keyboard.enabled) { return { x, y}}
         // Check keyboard input (Arrow keys)
         if (this.cursors.left?.isDown) {
             x -= 1;
@@ -1476,6 +1524,11 @@ export class Game extends Scene {
             return;
         }
 
+        // Skip input handling
+        if (this.isInputAllowed === false) {
+            return;
+        }
+
         // Reset player velocity
         this.player.setVelocity(0);
 
@@ -1498,6 +1551,11 @@ export class Game extends Scene {
             // Update player angle based on movement direction
             // Add PI/2 to correct the orientation, then add PI to flip 180 degrees
             this.playerAngle = Math.atan2(input.y, input.x) + Math.PI / 2 + Math.PI;
+
+            // When player comes out of transformation jutsu
+            // TODO: To abstract player's logic
+            this.playerHead.setVisible(true);
+            this.isInvincible = false;
 
             // Update player sprite based on movement direction
             const deadzone = 0.01;

@@ -37,6 +37,10 @@ export class Preloader extends Scene
         this.load.image('player-back', 'Sprite-Ninja-Back.png');
         this.load.image('player-front', 'Sprite-Ninja-Front.png');
         this.load.image('player-profile', 'Sprite-Ninja-Profile.png');
+        this.load.image('player-transform-box', 'Tiles/tile_0063.png');
+        this.load.image('player-transform-tomb', 'Tiles/tile_0064.png');
+        this.load.image('player-transform-grave', 'Tiles/tile_0065.png');
+        this.load.image('player-transform-barrel', 'Tiles/tile_0082.png');
 
         // Player head/body split sprites (for shader effects)
         this.load.image('head-front', 'head-front.png');
@@ -121,6 +125,10 @@ export class Preloader extends Scene
 
         // Invisible wall (revealed with mask 3)
         this.load.image('invisible-wall', 'Tiles/tile_0048.png');
+        this.load.spritesheet('smoke-fire', 'effects/smoke-fire.png', { 
+            frameWidth: 16,
+            frameHeight: 16,
+        });
     }
 
     create ()
