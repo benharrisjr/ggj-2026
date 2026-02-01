@@ -74,6 +74,18 @@ export class Preloader extends Scene
         this.load.image('btn-left', 'left.png');
         this.load.image('btn-right', 'right.png');
 
+        // UI - Action buttons
+        this.load.image('mask0', 'ui/0.png');
+        this.load.image('mask1', 'ui/1.png');
+        this.load.image('mask2', 'ui/2.png');
+        this.load.image('mask3', 'ui/3.png');
+        this.load.image('mask4', 'ui/4.png');
+        this.load.image('mask5', 'ui/5.png');
+        this.load.image('mask6', 'ui/6.png');
+        this.load.image('mask7', 'ui/7.png');
+        this.load.image('mask8', 'ui/8.png');
+        this.load.image('mask9', 'ui/9.png');
+
         // attack effects
         this.load.image('slash', 'effects/slash.png');
         this.load.image('fire', 'effects/fire.png');

@@ -1,6 +1,7 @@
 import { Scene } from 'phaser';
 import { Masks } from '../systems/masks/masks';
 import { Ability } from '../systems/abilities/abilities';
+import { UI } from '../systems/ui/ui';
 
 // Door color mapping: RGB color -> target level
 // Add new colors here to create doors to different levels
@@ -21,6 +22,7 @@ const DOOR_COLORS: { r: number; g: number; b: number; targetLevel: number }[] = 
 // Special tile colors
 const PLAYER_SPAWN_COLOR = { r: 99, g: 199, b: 77 };   // #63C74D - player spawn
 const ENEMY_SPAWN_COLOR = { r: 215, g: 67, b: 207 };   // #D743CF - enemy spawn
+
 
 // #0099DB chest
 // #2CE8F5 barrel
@@ -53,7 +55,8 @@ interface SpawnPoint {
 export class Game extends Scene {
     camera: Phaser.Cameras.Scene2D.Camera;
     background: Phaser.GameObjects.Image;
-    player: Phaser.Physics.Arcade.Image; // Changed to Arcade.Image for physics
+    player: Phaser.Physics.Arcade.Image;
+    playerContainer: Phaser.GameObjects.Container;
     enemies: Phaser.Physics.Arcade.Group;
     walls: Phaser.Physics.Arcade.StaticGroup;
     doors: Phaser.Physics.Arcade.StaticGroup;
@@ -81,24 +84,13 @@ export class Game extends Scene {
     // Health system
     playerHealth: number = 6;
     playerMaxHealth: number = 6;
-    heartSprites: Phaser.GameObjects.Image[] = [];
     isInvincible: boolean = false;
     isKnockedBack: boolean = false;
 
-    // Touch controls (added action button)
-    touchButtons: {
-        up?: Phaser.GameObjects.Image;
-        down?: Phaser.GameObjects.Image;
-        left?: Phaser.GameObjects.Image;
-        right?: Phaser.GameObjects.Image;
-        action?: Phaser.GameObjects.Image;
-    } = {};
-    touchInput = { up: false, down: false, left: false, right: false };
-
     gamepadMessage: Phaser.GameObjects.Text;
 
-    masks: Masks
-    maskValueText: Phaser.GameObjects.Text;
+    masks: Masks;
+    ui: UI;
 
     // Ability system
     currentAbility: Ability = Ability.Interact;
@@ -137,7 +129,6 @@ export class Game extends Scene {
         // Create collision layer from IntGrid (also populates spawn points)
         this.createCollisionLayer();
 
-        // Enable physics for the player at spawn point
         const playerStart = this.playerSpawnPoint || { x: 200, y: 250 };
         this.player = this.physics.add.image(playerStart.x, playerStart.y, 'player-front');
         this.player.setScale(2.0);
@@ -180,9 +171,6 @@ export class Game extends Scene {
 
     // Add collision between player and enemies (for damage)
     this.physics.add.overlap(this.player, this.enemies, this.onEnemyCollision as any, undefined, this);
-
-        // Create health UI
-        this.createHealthUI();
 
         // Create cursor keys for input
     this.cursors = this.input.keyboard!.createCursorKeys();
@@ -235,11 +223,6 @@ export class Game extends Scene {
             });
         }
 
-        // Create touch controls if touch is available
-        if (this.sys.game.device.input.touch) {
-            this.createTouchControls();
-        }
-
         // Initialize ability cooldowns (ms)
         this.abilityCooldowns[Ability.Dash] = 1000;
         this.abilityCooldowns[Ability.Attack] = 500;
@@ -248,7 +231,8 @@ export class Game extends Scene {
         // ensure last-used defaults
         Object.keys(this.abilityCooldowns).forEach(k => { this.abilityLastUsed[Number(k)] = 0; });
 
-        this.masks = new Masks(this)
+        this.masks = new Masks(this);
+        this.ui = new UI(this);
 
         // Listen for mask selection events and map them to abilities.
         // When a mask is selected, set the current ability (if mapped) and try to use it.
@@ -266,16 +250,11 @@ export class Game extends Scene {
             } else {
                 console.log('[MASK] No ability mapping for mask:', mask);
             }
+
         });
 
-        // Display current mask value in top-right for debugging
-        const pad = 8;
-        this.maskValueText = this.add.text(this.camera.width - pad, pad, `Mask: ${this.masks.mask}`, {
-            font: '16px monospace',
-            color: '#ffffff'
-        }).setOrigin(1, 0);
-        this.maskValueText.setScrollFactor(0);
-        this.maskValueText.setDepth(1001);
+        // Setup UI (health, mask display, touch controls)
+        this.ui.setup();
 
         // Create transition overlay (separate from fog-of-war mask)
         this.transitionOverlay = this.add.graphics();
@@ -456,150 +435,6 @@ export class Game extends Scene {
         console.log('Spawned', this.enemySpawnPoints.length, 'enemies');
     }
 
-    createHealthUI() {
-        // Clear existing hearts
-        this.heartSprites.forEach(heart => heart.destroy());
-        this.heartSprites = [];
-
-        // Calculate max hearts (each heart = 2 health)
-        const maxHearts = Math.ceil(this.playerMaxHealth / 2);
-        const heartsPerRow = 8;
-        const heartSpacing = 32;
-        const startX = 16;
-        const startY = 16;
-        const rowHeight = 20;
-
-        for (let i = 0; i < maxHearts; i++) {
-            const row = Math.floor(i / heartsPerRow);
-            const col = i % heartsPerRow;
-            const x = startX + col * heartSpacing;
-            const y = startY + row * rowHeight;
-
-            const heart = this.add.image(x, y, 'heart');
-            heart.setScrollFactor(0); // Fixed to camera
-            heart.setDepth(999); // Above most things, below transition overlay
-            heart.setScale(2.0);
-            this.heartSprites.push(heart);
-        }
-
-        this.updateHealthDisplay();
-    }
-
-    updateHealthDisplay() {
-        const maxHearts = Math.ceil(this.playerMaxHealth / 2);
-
-        for (let i = 0; i < maxHearts; i++) {
-            const heartValue = (i + 1) * 2; // Health value this heart represents (2, 4, 6, etc.)
-            const heart = this.heartSprites[i];
-
-            if (this.playerHealth >= heartValue) {
-                // Full heart
-                heart.setTexture('heart');
-            } else if (this.playerHealth === heartValue - 1) {
-                // Half heart
-                heart.setTexture('heart-half');
-            } else {
-                // Empty heart
-                heart.setTexture('heart-empty');
-            }
-        }
-    }
-
-    setMaskAbility() {
-        // speed mask
-        if (this.masks.mask === 1) {
-            // set ability to enum to dash
-        }
-    }
-
-    createTouchControls() {
-        const buttonSize = 64;
-        const buttonSpacing = 16;
-        const startX = 32;
-        const startY = this.cameras.main.height - 140;
-
-        // Create buttons in a d-pad layout
-        // Up button (top center)
-        this.touchButtons.up = this.add.image(
-            startX + buttonSize + buttonSpacing,
-            startY - buttonSpacing,
-            'btn-up'
-        );
-
-        // Down button (bottom center)
-        this.touchButtons.down = this.add.image(
-            startX + buttonSize + buttonSpacing,
-            startY + buttonSize + buttonSpacing*2,
-            'btn-down'
-        );
-
-        // Left button (middle left)
-        this.touchButtons.left = this.add.image(
-            startX,
-            startY + (buttonSize + buttonSpacing) / 2,
-            'btn-left'
-        );
-
-        // Right button (middle right)
-        this.touchButtons.right = this.add.image(
-            startX + (buttonSize + buttonSpacing) * 2,
-            startY + (buttonSize + buttonSpacing) / 2,
-            'btn-right'
-        );
-
-        // Configure all buttons
-        Object.entries(this.touchButtons).forEach(([direction, button]) => {
-            if (!button) return;
-
-            button.setScrollFactor(0); // Fixed to camera
-            button.setDepth(998); // Above game, below health UI
-            button.setScale(3.0);
-            button.setAlpha(0.7);
-            button.setInteractive();
-
-            // Pointer down - activate
-            button.on('pointerdown', () => {
-                this.touchInput[direction as keyof typeof this.touchInput] = true;
-                button.setAlpha(1.0);
-            });
-
-            // Pointer up - deactivate
-            button.on('pointerup', () => {
-                this.touchInput[direction as keyof typeof this.touchInput] = false;
-                button.setAlpha(0.7);
-            });
-
-            // Pointer out - deactivate (for when finger slides off)
-            button.on('pointerout', () => {
-                this.touchInput[direction as keyof typeof this.touchInput] = false;
-                button.setAlpha(0.7);
-            });
-        });
-
-        console.log('Touch controls created');
-
-        // Add an action button on the right side for touch devices
-        const actionX = this.cameras.main.width - 80;
-        const actionY = this.cameras.main.height - 120;
-        this.touchButtons.action = this.add.image(actionX, actionY, 'btn-action');
-        const actionBtn = this.touchButtons.action;
-        actionBtn.setScrollFactor(0);
-        actionBtn.setDepth(998);
-        actionBtn.setScale(3.0);
-        actionBtn.setAlpha(0.9);
-        actionBtn.setInteractive();
-        actionBtn.on('pointerdown', () => {
-            console.log('[ACTION] Touch action button pressed');
-            this.tryUseAbility();
-            actionBtn.setAlpha(1.0);
-        });
-        actionBtn.on('pointerup', () => {
-            actionBtn.setAlpha(0.9);
-        });
-        actionBtn.on('pointerout', () => {
-            actionBtn.setAlpha(0.9);
-        });
-    }
 
     tryUseAbility() {
         console.log('[ABILITY] tryUseAbility() called');
@@ -802,7 +637,7 @@ export class Game extends Scene {
         });
 
         // Update health display
-        this.updateHealthDisplay();
+        this.ui.updateHealthDisplay();
 
         // Become invincible briefly
         this.isInvincible = true;
@@ -830,7 +665,7 @@ export class Game extends Scene {
         console.log('Player died!');
         // Reset health and respawn at player spawn point
         this.playerHealth = this.playerMaxHealth;
-        this.updateHealthDisplay();
+        this.ui.updateHealthDisplay();
 
         // Respawn at player spawn point or fallback position
         const spawnPoint = this.playerSpawnPoint || { x: 100, y: 100 };
@@ -1003,16 +838,16 @@ export class Game extends Scene {
         }
 
         // Check touch controls
-        if (this.touchInput.left) {
+        if (this.ui.touchInput.left) {
             x -= 1;
         }
-        if (this.touchInput.right) {
+        if (this.ui.touchInput.right) {
             x += 1;
         }
-        if (this.touchInput.up) {
+        if (this.ui.touchInput.up) {
             y -= 1;
         }
-        if (this.touchInput.down) {
+        if (this.ui.touchInput.down) {
             y += 1;
         }
 
@@ -1020,15 +855,8 @@ export class Game extends Scene {
     }
 
     update() {
-        this.masks.update()
-
-        // Update on-screen mask value display
-        if (this.maskValueText) {
-            this.maskValueText.setText(`Mask: ${this.masks.mask}`);
-            // Keep positioned top-right in case camera size changes
-            const pad = 8;
-            this.maskValueText.setPosition(this.camera.width - pad, pad);
-        }
+        this.masks.update();
+        this.ui.update();
 
         // Handle debug mode toggle with Escape key
         if (Phaser.Input.Keyboard.JustDown(this.escapeKey)) {
@@ -1076,9 +904,6 @@ export class Game extends Scene {
             this.player.setVelocity(mv.x * 200, mv.y * 200);
             // Normalize body velocity to be safe
             this.player.body!.velocity.normalize().scale(200);
-
-            // Normalize diagonal movement to maintain consistent speed
-            this.player.body!.velocity.normalize().scale(200);
             // Store last movement direction (unit vector) for dash usage
             this.lastMoveX = mv.x;
             this.lastMoveY = mv.y;
@@ -1113,6 +938,8 @@ export class Game extends Scene {
                 this.isPlayingFootstep = true;
             }
         }
+
+        
 
         // Reset spawn flag if player is no longer overlapping any doors
         if (this.justSpawnedOnDoor) {
