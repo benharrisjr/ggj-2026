@@ -110,6 +110,12 @@ export class Game extends Scene {
     spaceKey: Phaser.Input.Keyboard.Key;
     escapeKey: Phaser.Input.Keyboard.Key;
     previousGamepadAState: boolean = false;
+    previousGamepadLTState: boolean = false;
+    previousGamepadRTState: boolean = false;
+    previousGamepadLBState: boolean = false;
+    previousGamepadRBState: boolean = false;
+    dashHitEnemy: boolean = false;
+    dashInflictsDamage: boolean = false;
     actionButtonPressed: boolean = false;
 
     // Last movement direction (unit vector) used for dash fallback
@@ -121,6 +127,10 @@ export class Game extends Scene {
     debugMode: boolean = true;
     // Torches
     torches: Phaser.Physics.Arcade.StaticGroup;
+    // Music
+    levelMusic: Phaser.Sound.BaseSound;
+    bossMusic: Phaser.Sound.BaseSound;
+    isBossMusicPlaying: boolean = false;
     // Barrels
     barrels: Phaser.Physics.Arcade.StaticGroup;
     barrelSpawnPoints: SpawnPoint[];
@@ -137,10 +147,18 @@ export class Game extends Scene {
     }
 
     create() {
+        this.game.canvas.style.cursor = 'none';
         this.physics.world.debugGraphic.visible = false;
         this.camera = this.cameras.main;
         this.camera.setZoom(1.0);
         this.camera.setBackgroundColor(0x000000);
+
+        // Stop all existing sounds and play level music (looping)
+        this.sound.stopAll();
+        this.levelMusic = this.sound.add('levelMusic', { loop: true, volume: 0.4 });
+        this.bossMusic = this.sound.add('bossMusic', { loop: true, volume: 0.5 });
+        this.levelMusic.play();
+        this.isBossMusicPlaying = false;
 
         // Create background at origin (0,0)
         this.background = this.add.image(0, 0, `level_${this.currentLevel}`);
@@ -265,10 +283,13 @@ export class Game extends Scene {
     // Escape key for debug toggle
     this.escapeKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
 
-        // Left click for basic attack
+        // Left click for basic attack, right click for mask ability
         this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
             if (pointer.leftButtonDown()) {
                 this.performBasicAttack();
+            } else if (pointer.rightButtonDown()) {
+                console.log('[INPUT] Right mouse button pressed - using mask ability');
+                this.tryUseAbility();
             }
         });
 
@@ -315,8 +336,8 @@ export class Game extends Scene {
         }
 
         // Initialize ability cooldowns (ms)
-        this.abilityCooldowns[Ability.Dash] = 1000;
-        this.abilityCooldowns[Ability.Attack] = 500;
+        this.abilityCooldowns[Ability.DashAttack] = 1000;
+        this.abilityCooldowns[Ability.FireAttack] = 500;
         this.abilityCooldowns[Ability.Interact] = 250;
         this.abilityCooldowns[Ability.Special] = 2000;
         // ensure last-used defaults
@@ -330,8 +351,8 @@ export class Game extends Scene {
         this.events.on('mask:select', (mask: number) => {
             console.log('[MASK] Mask selected:', mask);
             const mapping: Record<number, Ability> = {
-                1: Ability.Dash,
-                2: Ability.Attack,
+                1: Ability.DashAttack,
+                2: Ability.FireAttack,
                 3: Ability.Interact,
                 4: Ability.Special,
                 5: Ability.Transformation,
@@ -814,14 +835,17 @@ export class Game extends Scene {
         torchSprite.setData('lit', true);
         torchSprite.setTexture('torch-lit');
 
-        // Add a light circle mask around the torch
-        const lightId = this.masks.addLightSource(torchSprite.x, torchSprite.y, 64);
+        // Add a light circle mask around the torch (larger radius for better visibility)
+        const lightId = this.masks.addLightSource(torchSprite.x, torchSprite.y, 128);
         torchSprite.setData('lightId', lightId);
 
         console.log('Torch lit at', torchSprite.x, torchSprite.y);
 
-        // Set timer to extinguish after 5 seconds
-        this.time.delayedCall(5000, () => {
+        // Check if all torches are lit in level_2 for boss music
+        this.checkBossMusic();
+
+        // Set timer to extinguish after 10 seconds
+        this.time.delayedCall(10000, () => {
             if (!torchSprite.active) return;
 
             torchSprite.setData('lit', false);
@@ -836,6 +860,79 @@ export class Game extends Scene {
 
             console.log('Torch extinguished at', torchSprite.x, torchSprite.y);
         });
+    }
+
+    checkBossMusic() {
+        // Only check for boss music in level_2, and only if not already playing
+        if (this.currentLevel !== 2 || this.isBossMusicPlaying) return;
+
+        // Count how many torches are currently lit
+        let litCount = 0;
+        this.torches.getChildren().forEach((torch) => {
+            const torchSprite = torch as Phaser.Physics.Arcade.Image;
+            if (torchSprite.getData('lit')) {
+                litCount++;
+            }
+        });
+
+        console.log('[BOSS] Lit torches:', litCount, '/', this.torches.getChildren().length);
+
+        // If all 4 torches are lit, start boss music (one-time switch)
+        if (litCount >= 4) {
+            console.log('[BOSS] All torches lit! Starting boss music!');
+            this.levelMusic.stop();
+            this.bossMusic.play();
+            this.isBossMusicPlaying = true;
+        }
+    }
+
+    performDash(magnitude: number = 900, inflictDamage: boolean = false) {
+        console.log('[DASH] Performing dash - magnitude:', magnitude, 'inflictDamage:', inflictDamage);
+        // Short burst in the last movement direction (fallback to current velocity or up)
+        const dashSpeed = magnitude;
+        const dashDuration = 250; // Duration stays consistent
+
+        // Prefer the last known movement direction (unit vector)
+        let dirX = this.lastMoveX;
+        let dirY = this.lastMoveY;
+
+        // If last movement is essentially zero, try to derive from current body velocity
+        if (Math.abs(dirX) < 1e-3 && Math.abs(dirY) < 1e-3) {
+            const bvx = this.player.body?.velocity.x || 0;
+            const bvy = this.player.body?.velocity.y || 0;
+            const blen = Math.hypot(bvx, bvy);
+            if (blen > 1e-3) {
+                dirX = bvx / blen;
+                dirY = bvy / blen;
+            } else {
+                // Default to up
+                dirX = 0;
+                dirY = -1;
+            }
+        }
+
+        const vx = dirX * dashSpeed;
+        const vy = dirY * dashSpeed;
+        console.log('Dash direction:', dirX, dirY, 'Dash velocity:', vx, vy);
+
+        // Activate dash state and set velocity
+        this.isDashing = true;
+        this.dashHitEnemy = false; // Reset hit flag for this dash
+        this.dashInflictsDamage = inflictDamage; // Store whether this dash should damage enemies
+        this.player.setVelocity(vx, vy);
+        console.log('[DASH] Dash started. isDashing:', this.isDashing, 'dashHitEnemy:', this.dashHitEnemy, 'dashInflictsDamage:', this.dashInflictsDamage);
+
+        // Make invincible for a short moment while dashing
+        this.isInvincible = true;
+
+        this.time.delayedCall(dashDuration, () => {
+            this.isInvincible = false;
+            this.isDashing = false;
+            // stop dash movement gently
+            this.player.setVelocity(0, 0);
+        });
+
+        console.log('Dash executed');
     }
 
     performBasicAttack() {
@@ -964,48 +1061,13 @@ export class Game extends Scene {
         console.log('[ABILITY] useAbility() called with:', ability, '(', Ability[ability], ')');
 
         switch (ability) {
-            case Ability.Dash: {
-                console.log('[ABILITY] Executing Dash');
-                // Short burst in the last movement direction (fallback to current velocity or up)
-                const dashSpeed = 600;
-                // Prefer the last known movement direction (unit vector)
-                let dirX = this.lastMoveX;
-                let dirY = this.lastMoveY;
-
-                // If last movement is essentially zero, try to derive from current body velocity
-                if (Math.abs(dirX) < 1e-3 && Math.abs(dirY) < 1e-3) {
-                    const bvx = this.player.body?.velocity.x || 0;
-                    const bvy = this.player.body?.velocity.y || 0;
-                    const blen = Math.hypot(bvx, bvy);
-                    if (blen > 1e-3) {
-                        dirX = bvx / blen;
-                        dirY = bvy / blen;
-                    } else {
-                        // Default to up
-                        dirX = 0;
-                        dirY = -1;
-                    }
-                }
-
-                const vx = dirX * dashSpeed;
-                const vy = dirY * dashSpeed;
-                console.log('Dash direction:', dirX, dirY, 'Dash velocity:', vx, vy);
-                // Activate dash state and set velocity
-                this.isDashing = true;
-                this.player.setVelocity(vx, vy);
-                // Make invincible for a short moment while dashing
-                this.isInvincible = true;
-                this.time.delayedCall(200, () => {
-                    this.isInvincible = false;
-                    this.isDashing = false;
-                    // stop dash movement gently
-                    this.player.setVelocity(0, 0);
-                });
-                console.log('Used Dash');
+            case Ability.DashAttack: {
+                console.log('[ABILITY] Executing Dash Attack');
+                this.performDash(600, true); // Short attack dash
                 break;
             }
-            case Ability.Attack: {
-                console.log('[ABILITY] Executing Attack');
+            case Ability.FireAttack: {
+                console.log('[ABILITY] Executing Fire Attack');
                 // Simple attack stub: flash player and play a sound if available
                 this.tweens.add({
                     targets: this.playerContainer,
@@ -1157,6 +1219,23 @@ export class Game extends Scene {
     }
 
     onEnemyCollision(_player: Phaser.GameObjects.GameObject, enemy: Phaser.GameObjects.GameObject) {
+        console.log('[COLLISION] Enemy collision detected. isDashing:', this.isDashing, 'dashInflictsDamage:', this.dashInflictsDamage, 'dashHitEnemy:', this.dashHitEnemy, 'isInvincible:', this.isInvincible);
+
+        // If dashing with damage enabled, damage the enemy instead and reset dash cooldown (only once per dash)
+        if (this.isDashing && this.dashInflictsDamage && !this.dashHitEnemy) {
+            const enemySprite = enemy as Phaser.Physics.Arcade.Image;
+            console.log('[DASH] Hit enemy during dash attack!');
+            this.damageEnemy(enemySprite, 1); // Dash attack does 1 damage
+
+            // Mark that this dash has hit an enemy
+            this.dashHitEnemy = true;
+
+            // Reset dash cooldown to allow immediate chaining
+            this.abilityLastUsed[Ability.DashAttack] = 0;
+            console.log('[DASH] Cooldown reset - can dash again!');
+            return;
+        }
+
         // Don't take damage if invincible or transitioning
         if (this.isInvincible || this.isTransitioning) return;
 
@@ -1301,6 +1380,13 @@ export class Game extends Scene {
 
         // Clear all light sources from previous level
         this.masks.lightSources = [];
+
+        // Reset boss music state when changing levels
+        if (this.isBossMusicPlaying) {
+            this.bossMusic.stop();
+            this.levelMusic.play();
+            this.isBossMusicPlaying = false;
+        }
 
         // Track level transition
         this.previousLevel = this.currentLevel;
@@ -1502,21 +1588,54 @@ export class Game extends Scene {
             console.log('[DEBUG] Debug mode:', this.debugMode ? 'ON' : 'OFF');
         }
 
-        // Handle action input: keyboard (space) and gamepad A (rising edge)
-        // Keyboard: just down
+        // Handle action input: keyboard (space for dash) and gamepad controls
+        // Keyboard: spacebar for dash
         if (Phaser.Input.Keyboard.JustDown(this.spaceKey)) {
-            console.log('[ACTION] Space key pressed');
-            this.tryUseAbility();
+            console.log('[ACTION] Space key pressed - dashing');
+            this.performDash(600, false); // Long mobility dash
         }
 
-        // Gamepad A detection (rising edge)
+        // Gamepad controls
         if (this.gamepad) {
-            const aPressed = !!(this.gamepad.buttons && this.gamepad.buttons[0] && this.gamepad.buttons[0].pressed);
+            // A button (button 0) - slash attack (rising edge)
+            const aPressed = !!(this.gamepad.buttons && this.gamepad.buttons[1] && this.gamepad.buttons[1].pressed);
             if (aPressed && !this.previousGamepadAState) {
-                console.log('[ACTION] Gamepad A button pressed');
-                this.tryUseAbility();
+                console.log('[ACTION] Gamepad A button pressed - slash attack');
+                this.performBasicAttack();
             }
             this.previousGamepadAState = aPressed;
+
+            // Left trigger (button 6) - dash
+            const ltPressed = !!(this.gamepad.buttons && this.gamepad.buttons[6] && this.gamepad.buttons[6].pressed);
+            if (ltPressed && !this.previousGamepadLTState) {
+                console.log('[ACTION] Gamepad LT pressed - dashing');
+                this.performDash(600, false); // Long mobility dash
+            }
+            this.previousGamepadLTState = ltPressed;
+
+            // Right trigger (button 7) - mask ability
+            const rtPressed = !!(this.gamepad.buttons && this.gamepad.buttons[7] && this.gamepad.buttons[7].pressed);
+            if (rtPressed && !this.previousGamepadRTState) {
+                console.log('[ACTION] Gamepad RT pressed - using mask ability');
+                this.tryUseAbility();
+            }
+            this.previousGamepadRTState = rtPressed;
+
+            // Left bumper (button 4) - previous mask
+            const lbPressed = !!(this.gamepad.buttons && this.gamepad.buttons[4] && this.gamepad.buttons[4].pressed);
+            if (lbPressed && !this.previousGamepadLBState) {
+                console.log('[ACTION] Gamepad LB pressed - previous mask');
+                this.masks.previousMask();
+            }
+            this.previousGamepadLBState = lbPressed;
+
+            // Right bumper (button 5) - next mask
+            const rbPressed = !!(this.gamepad.buttons && this.gamepad.buttons[5] && this.gamepad.buttons[5].pressed);
+            if (rbPressed && !this.previousGamepadRBState) {
+                console.log('[ACTION] Gamepad RB pressed - next mask');
+                this.masks.nextMask();
+            }
+            this.previousGamepadRBState = rbPressed;
         }
 
         // Skip input handling during knockback or while dashing (so dash velocity isn't immediately overwritten)

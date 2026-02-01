@@ -20,6 +20,7 @@ const config: Phaser.Types.Core.GameConfig = {
         mouse: true,
         touch: true,
     },
+    disableContextMenu: true,
     physics: {
         default: 'arcade',
         arcade: {

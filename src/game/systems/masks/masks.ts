@@ -211,6 +211,18 @@ export class Masks {
         }
     }
 
+    // Cycle to next mask (wraps around)
+    nextMask() {
+        const nextMask = (this.mask + 1) % 5; // 0-4
+        this.maskSelect(nextMask);
+    }
+
+    // Cycle to previous mask (wraps around)
+    previousMask() {
+        const prevMask = (this.mask - 1 + 5) % 5; // 0-4
+        this.maskSelect(prevMask);
+    }
+
     updateOverlayColor() {
         const color = MASK_COLORS[this.mask] ?? 0x000000;
         this.overlay.clear();
