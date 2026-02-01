@@ -85,6 +85,7 @@ export class Preloader extends Scene
         this.load.image('btn-down', 'down.png');
         this.load.image('btn-left', 'left.png');
         this.load.image('btn-right', 'right.png');
+        this.load.image('btn-action', 'action.png');
 
         // UI - Action buttons
         this.load.image('mask0', 'ui/0.png');
@@ -103,6 +104,10 @@ export class Preloader extends Scene
         this.load.image('fire', 'effects/fire.png');
         this.load.image('fire-hit', 'effects/fire-hit.png');
         this.load.image('fire-hit-end', 'effects/fire-hit-end.png');
+
+        // Environment objects
+        this.load.image('torch', 'torch.png');
+        this.load.image('torch-lit', 'torch-lit.png');
     }
 
     create ()

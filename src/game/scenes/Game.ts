@@ -112,6 +112,10 @@ export class Game extends Scene {
     isDashing: boolean = false;
     // Debug mode toggle
     debugMode: boolean = true;
+    // Torches
+    torches: Phaser.Physics.Arcade.StaticGroup;
+    // Player direction for sprite selection
+    currentPlayerDirection: 'up' | 'down' | 'horizontal' = 'down';
 
     constructor() {
         super('Game');
@@ -209,6 +213,10 @@ export class Game extends Scene {
         // Create enemies group and spawn at all enemy spawn points
         this.enemies = this.physics.add.group();
         this.spawnEnemies();
+
+        // Create torches group and place torches
+        this.torches = this.physics.add.staticGroup();
+        this.createTorches();
 
     // Add collision between player and enemies (for damage)
     this.physics.add.overlap(this.player, this.enemies, this.onEnemyCollision as any, undefined, this);
@@ -478,6 +486,79 @@ export class Game extends Scene {
         console.log('Spawned', this.enemySpawnPoints.length, 'enemies');
     }
 
+    createTorches() {
+        // Clear existing torches
+        this.torches.clear(true, true);
+
+        // Place a test torch at a fixed position (can be expanded to read from level data)
+        const torchPositions = [
+            { x: 150, y: 150 },
+            { x: 300, y: 200 },
+        ];
+
+        for (const pos of torchPositions) {
+            const torch = this.torches.create(pos.x, pos.y, 'torch') as Phaser.Physics.Arcade.Image;
+            torch.setScale(2.0);
+            torch.setData('lit', false);
+            torch.setData('lightId', null);
+        }
+
+        console.log('Created', torchPositions.length, 'torches');
+    }
+
+    onFireHitTorch(fire: Phaser.GameObjects.GameObject, torch: Phaser.GameObjects.GameObject) {
+        const torchSprite = torch as Phaser.Physics.Arcade.Image;
+        const fireSprite = fire as Phaser.Physics.Arcade.Sprite;
+
+        // Skip if torch is already lit or fire already hit something
+        if (torchSprite.getData('lit') || fireSprite.getData('hit')) {
+            return;
+        }
+
+        // Mark fire as hit
+        fireSprite.setData('hit', true);
+        fireSprite.setVelocity(0, 0);
+        if (fireSprite.body) {
+            (fireSprite.body as Phaser.Physics.Arcade.Body).enable = false;
+        }
+        fireSprite.setTexture('fire-hit');
+
+        // Destroy fire after hit animation
+        this.time.delayedCall(100, () => {
+            if (!fireSprite.active) return;
+            fireSprite.setTexture('fire-hit-end');
+            this.time.delayedCall(150, () => {
+                if (fireSprite && fireSprite.active) fireSprite.destroy();
+            });
+        });
+
+        // Light the torch
+        torchSprite.setData('lit', true);
+        torchSprite.setTexture('torch-lit');
+
+        // Add a light circle mask around the torch
+        const lightId = this.masks.addLightSource(torchSprite.x, torchSprite.y, 64);
+        torchSprite.setData('lightId', lightId);
+
+        console.log('Torch lit at', torchSprite.x, torchSprite.y);
+
+        // Set timer to extinguish after 5 seconds
+        this.time.delayedCall(5000, () => {
+            if (!torchSprite.active) return;
+
+            torchSprite.setData('lit', false);
+            torchSprite.setTexture('torch');
+
+            // Remove the light mask
+            const storedLightId = torchSprite.getData('lightId');
+            if (storedLightId !== null) {
+                this.masks.removeLightSource(storedLightId);
+                torchSprite.setData('lightId', null);
+            }
+
+            console.log('Torch extinguished at', torchSprite.x, torchSprite.y);
+        });
+    }
 
     // Color mapping for each mask (mask number -> hex color)
     updateHeadColor(mask: number) {
@@ -641,6 +722,8 @@ export class Game extends Scene {
                 if (this.walls) this.physics.add.collider(fire, this.walls, handleHit as any, undefined, this);
                 if (this.doors) this.physics.add.collider(fire, this.doors, handleHit as any, undefined, this);
                 if (this.enemies) this.physics.add.collider(fire, this.enemies, handleHit as any, undefined, this);
+                // Fire can light torches
+                if (this.torches) this.physics.add.overlap(fire, this.torches, this.onFireHitTorch as any, undefined, this);
 
                 // world bounds hit -> trigger same sequence
                 fire.setCollideWorldBounds(true);
@@ -795,6 +878,9 @@ export class Game extends Scene {
         this.walls.clear(true, true);
         this.doors.clear(true, true);
 
+        // Clear all light sources from previous level
+        this.masks.lightSources = [];
+
         // Track level transition
         this.previousLevel = this.currentLevel;
         this.currentLevel = levelIndex;
@@ -835,6 +921,9 @@ export class Game extends Scene {
 
         // Spawn enemies for this level
         this.spawnEnemies();
+
+        // Recreate torches for new level
+        this.createTorches();
 
         // Re-add enemy collision
     this.physics.add.overlap(this.player, this.enemies, this.onEnemyCollision as any, undefined, this);
