@@ -5,6 +5,7 @@ import { Ability } from '../systems/abilities/abilities';
 // Door color mapping: RGB color -> target level
 // Add new colors here to create doors to different levels
 const DOOR_COLORS: { r: number; g: number; b: number; targetLevel: number }[] = [
+    { r: 215, g: 118, b: 67, targetLevel: 2 },  // #D77643 -> Level 2
     { r: 190, g: 74, b: 47, targetLevel: 1 },   // #BE4A2F -> Level 1
     { r: 69, g: 40, b: 60, targetLevel: 0 },    // #45283C -> Level 0
     // Add more door colors as needed:

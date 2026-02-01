@@ -49,6 +49,10 @@ export class Preloader extends Scene
         this.load.image('level_1', 'Level_1/Tiles.png');
         this.load.image('intgrid_1', 'Level_1/IntGrid-int.png');
 
+        // Level 2 assets
+        this.load.image('level_2', 'Level_2/Tiles.png');
+        this.load.image('intgrid_2', 'Level_2/IntGrid-int.png');
+
         // Audio - load all footstep variations
         for (let i = 1; i <= 9; i++) {
             this.load.audio(`footstep0${i}`, `audio/footstep0${i}.ogg`);
