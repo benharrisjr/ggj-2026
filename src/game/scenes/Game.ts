@@ -988,6 +988,7 @@ export class Game extends Scene {
         this.ui.updateHealthDisplay();
 
         // Respawn at player spawn point or fallback position
+        this.loadLevel(0);
         const spawnPoint = this.playerSpawnPoint || { x: 100, y: 100 };
         this.player.setPosition(spawnPoint.x, spawnPoint.y);
         this.camera.centerOn(spawnPoint.x, spawnPoint.y);
