@@ -19,8 +19,11 @@ export class Masks {
     gfx: Phaser.GameObjects.Graphics
     maskKeys: Record<number, Array<Phaser.Input.Keyboard.Key>> = {};
     mask: number = 0
+
     maskTexture: Phaser.Textures.Texture
     maskPixels: Uint8ClampedArray<ArrayBuffer>
+    maskWidth: number = 0
+    maskHeight: number = 0
 
     constructor(game: Game) {
         this.game = game
@@ -48,6 +51,9 @@ export class Masks {
     setTexture(name: string) {
         this.maskTexture = this.game.textures.get(name)
         const source = this.maskTexture.getSourceImage() as HTMLImageElement;
+
+        this.maskWidth = source.width
+        this.maskHeight = source.height
 
         // Create a canvas to extract pixel data
         const canvas = document.createElement('canvas');
@@ -246,7 +252,41 @@ export class Masks {
     }
 
     enemyVisible(enemy: Phaser.Physics.Arcade.Image): boolean {
-        console.log(enemy)
-        return true
+        const bounds = enemy.getBounds();
+
+        // Convert world bounds to mask-local coordinates
+        // Assuming mask is centered at maskWorldX, maskWorldY
+        const maskLeft = this.player.x - this.maskWidth / 2;
+        const maskTop = this.player.y - this.maskHeight / 2;
+
+        const localLeft = Math.floor(bounds.left - maskLeft);
+        const localTop = Math.floor(bounds.top - maskTop);
+        const localRight = Math.ceil(bounds.right - maskLeft);
+        const localBottom = Math.ceil(bounds.bottom - maskTop);
+
+        // Clamp to mask bounds
+        const startX = Math.max(0, localLeft);
+        const startY = Math.max(0, localTop);
+        const endX = Math.min(this.maskWidth, localRight);
+        const endY = Math.min(this.maskHeight, localBottom);
+
+        // If enemy is completely outside mask, handle accordingly
+        if (startX >= endX || startY >= endY) {
+            return false; // or true, depending on your logic
+        }
+
+        // Sample pixels
+        for (let y = startY; y < endY; y++) {
+            for (let x = startX; x < endX; x++) {
+                const pixelIndex = (y * this.maskWidth + x) * 4;
+                const alpha = this.maskPixels[pixelIndex + 3];
+
+                if (alpha < 255) { // Has transparency
+                    return true;
+                }
+            }
+        }
+
+        return false; // All pixels are opaque
     }
 }
