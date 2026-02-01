@@ -1,5 +1,73 @@
 import { Game } from "../../scenes/Game";
 
+// Shape types for mask definitions
+type ShapeType = 'triangle' | 'circle' | 'rect';
+
+interface MaskShape {
+    type: ShapeType;
+    // For triangle: size is the triangle size
+    // For circle: size is the radius
+    // For rect: size is { width, height }
+    size: number | { width: number; height: number };
+    // Offset from player position
+    offsetX?: number;
+    offsetY?: number;
+    // For triangle: whether to rotate with player angle
+    rotateWithPlayer?: boolean;
+    // For triangle: angle offset from player direction
+    angleOffset?: number;
+}
+
+// Light source (e.g., lit torch) that adds a circle to the mask
+interface LightSource {
+    id: number;
+    x: number;
+    y: number;
+    radius: number;
+}
+
+// Color mapping for each mask (same as head/button colors)
+const MASK_COLORS: Record<number, number> = {
+    0: 0x000000,    // Default - black
+    1: 0x00FFFF,    // Dash - cyan
+    2: 0xFF4400,    // Attack - orange/fire
+    3: 0x00FF00,    // Interact - green
+    4: 0xFF00FF,    // Special - magenta
+    5: 0x000000,
+    6: 0x000000,
+    7: 0x000000,
+    8: 0x000000,
+    9: 0x000000,
+};
+
+// Define shapes for each mask number
+const MASK_SHAPES: Record<number, MaskShape[]> = {
+    0: [
+        // Default: circle around player
+        { type: 'circle', size: 24 }
+    ],
+    1: [
+        // Dash: narrower triangle
+        { type: 'triangle', size: 140, rotateWithPlayer: true }
+    ],
+    2: [
+        // Attack: forward triangle + small circle around player
+        { type: 'triangle', size: 60, rotateWithPlayer: true },
+        { type: 'circle', size: 24 }
+    ],
+    3: [
+        // Interact: circle around player
+        { type: 'circle', size: 96 }
+    ],
+    4: [
+        // Special: multiple triangles (peripheral vision)
+        { type: 'triangle', size: 60, rotateWithPlayer: true, angleOffset: 0 },
+        { type: 'triangle', size: 60, rotateWithPlayer: true, angleOffset: Math.PI / 2 },
+        // { type: 'triangle', size: 60, rotateWithPlayer: true, angleOffset: Math.PI },
+        { type: 'triangle', size: 60, rotateWithPlayer: true, angleOffset: -Math.PI / 2 }
+    ],
+};
+
 const numKeys: Record<number, Array<number>> = {
     0: [Phaser.Input.Keyboard.KeyCodes.ZERO, Phaser.Input.Keyboard.KeyCodes.NUMPAD_ZERO],
     1: [Phaser.Input.Keyboard.KeyCodes.ONE, Phaser.Input.Keyboard.KeyCodes.NUMPAD_ONE],
@@ -17,8 +85,12 @@ export class Masks {
     game: Game
     player: Phaser.Physics.Arcade.Image
     gfx: Phaser.GameObjects.Graphics
+    overlay: Phaser.GameObjects.Graphics
     maskKeys: Record<number, Array<Phaser.Input.Keyboard.Key>> = {};
     mask: number = 0
+    // Dynamic light sources (e.g., lit torches)
+    lightSources: LightSource[] = [];
+    nextLightId: number = 0;
 
     constructor(game: Game) {
         this.game = game
@@ -28,8 +100,9 @@ export class Masks {
         this.setupInput()
 
         // Create overlay that covers the entire level (will be masked)
-        const overlay = game.add.graphics();
-        overlay.fillStyle(0x000000, 0.8).fillRect(0, 0, 2000, 2000); // Large enough for any level
+        this.overlay = game.add.graphics();
+        this.overlay.setDepth(100); // Above all game objects, below UI
+        this.updateOverlayColor();
 
         this.gfx.fillStyle(0xffffff);
 
@@ -38,7 +111,7 @@ export class Masks {
 
         const mask = new Phaser.Display.Masks.BitmapMask(game, this.gfx);
         mask.invertAlpha = true;
-        overlay.setMask(mask);
+        this.overlay.setMask(mask);
     }
 
     setupInput() {
@@ -70,8 +143,54 @@ export class Masks {
         this.gfx.clear();
         this.gfx.fillStyle(0xffffff);
 
-        // Draw rotated triangle centered on player
-        this.drawRotatedTriangle(this.game.player.x, this.game.player.y, this.game.playerAngle, 80);
+        // Draw all shapes for the current mask
+        this.drawMaskShapes();
+    }
+
+    drawMaskShapes() {
+        const shapes = MASK_SHAPES[this.mask] || MASK_SHAPES[0];
+        const playerX = this.game.player.x;
+        const playerY = this.game.player.y;
+        const playerAngle = this.game.playerAngle;
+
+        for (const shape of shapes) {
+            const offsetX = shape.offsetX || 0;
+            const offsetY = shape.offsetY || 0;
+            const x = playerX + offsetX;
+            const y = playerY + offsetY;
+
+            switch (shape.type) {
+                case 'triangle': {
+                    const size = shape.size as number;
+                    const angle = shape.rotateWithPlayer
+                        ? playerAngle + (shape.angleOffset || 0)
+                        : (shape.angleOffset || 0);
+                    this.drawTriangle(x, y, angle, size);
+                    break;
+                }
+                case 'circle': {
+                    const radius = shape.size as number;
+                    this.gfx.fillCircle(x, y, radius);
+                    break;
+                }
+                case 'rect': {
+                    const { width, height } = shape.size as { width: number; height: number };
+                    // Center the rect on the position
+                    this.gfx.fillRect(x - width / 2, y - height / 2, width, height);
+                    break;
+                }
+            }
+        }
+
+        // Draw light source circles (lit torches, etc.)
+        for (const light of this.lightSources) {
+            this.gfx.fillCircle(light.x, light.y, light.radius);
+        }
+    }
+
+    drawTriangle(x: number, y: number, angle: number, size: number) {
+        const { p1, p2, p3 } = this.getTrianglePoints(x, y, angle, size);
+        this.gfx.fillTriangle(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
     }
 
     drawRotatedTriangle(x: number, y: number, angle: number, size: number) {
@@ -82,6 +201,7 @@ export class Masks {
     maskSelect(mask: number) {
         this.mask = mask
         console.log("mask set", mask)
+        this.updateOverlayColor();
         // Emit an event on the scene so external code (e.g., Game.ts) can react
         // with the selected mask value.
         try {
@@ -91,20 +211,87 @@ export class Masks {
         }
     }
 
-    checkEnemies() {
-        // Check if each enemy is inside the mask triangle
-        const trianglePoints = this.getTrianglePoints(this.game.player.x, this.game.player.y, this.game.playerAngle, 80);
+    updateOverlayColor() {
+        const color = MASK_COLORS[this.mask] ?? 0x000000;
+        this.overlay.clear();
+        const opacity = this.mask === 0 ? 0.95 : 0.7; // Set desired opacity here
+        const darkenedColor = this.mask === 0 ? color : Phaser.Display.Color.IntegerToColor(color).darken(50).color;
+        this.overlay.fillStyle(darkenedColor, opacity).fillRect(0, 0, 2000, 2000);
+    }
 
+    // Add a light source (returns its ID for later removal)
+    addLightSource(x: number, y: number, radius: number): number {
+        const id = this.nextLightId++;
+        this.lightSources.push({ id, x, y, radius });
+        return id;
+    }
+
+    // Remove a light source by ID
+    removeLightSource(id: number) {
+        this.lightSources = this.lightSources.filter(light => light.id !== id);
+    }
+
+    // Check if a point is inside any of the current mask's shapes
+    isPointInMask(px: number, py: number): boolean {
+        const shapes = MASK_SHAPES[this.mask] || MASK_SHAPES[0];
+        const playerX = this.game.player.x;
+        const playerY = this.game.player.y;
+        const playerAngle = this.game.playerAngle;
+
+        for (const shape of shapes) {
+            const offsetX = shape.offsetX || 0;
+            const offsetY = shape.offsetY || 0;
+            const x = playerX + offsetX;
+            const y = playerY + offsetY;
+
+            switch (shape.type) {
+                case 'triangle': {
+                    const size = shape.size as number;
+                    const angle = shape.rotateWithPlayer
+                        ? playerAngle + (shape.angleOffset || 0)
+                        : (shape.angleOffset || 0);
+                    const points = this.getTrianglePoints(x, y, angle, size);
+                    if (this.isPointInTriangle(px, py, points.p1, points.p2, points.p3)) {
+                        return true;
+                    }
+                    break;
+                }
+                case 'circle': {
+                    const radius = shape.size as number;
+                    const dist = Math.hypot(px - x, py - y);
+                    if (dist <= radius) {
+                        return true;
+                    }
+                    break;
+                }
+                case 'rect': {
+                    const { width, height } = shape.size as { width: number; height: number };
+                    const left = x - width / 2;
+                    const top = y - height / 2;
+                    if (px >= left && px <= left + width && py >= top && py <= top + height) {
+                        return true;
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Also check light sources (lit torches, etc.)
+        for (const light of this.lightSources) {
+            const dist = Math.hypot(px - light.x, py - light.y);
+            if (dist <= light.radius) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    checkEnemies() {
         this.game.enemies.getChildren().forEach((enemy) => {
             const enemySprite = enemy as Phaser.Physics.Arcade.Image;
             const wasVisible = enemySprite.visible;
-            const enemyInMask = this.isPointInTriangle(
-                enemySprite.x,
-                enemySprite.y,
-                trianglePoints.p1,
-                trianglePoints.p2,
-                trianglePoints.p3
-            );
+            const enemyInMask = this.isPointInMask(enemySprite.x, enemySprite.y);
             enemySprite.setVisible(enemyInMask);
 
             // Play spotted sound when enemy becomes visible

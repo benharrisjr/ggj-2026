@@ -27,7 +27,7 @@ const ENEMY_SPAWN_COLOR = { r: 215, g: 67, b: 207 };   // #D743CF - enemy spawn
 
 
 // #0099DB chest
-// #2CE8F5 barrel
+const BARREL_SPAWN_COLOR = { r: 44, g: 232, b: 245 };   // #2CE8F5 - barrel spawn
 // #FFFFFF crate
 // #C0CBDC water
 // #8B9BB4 anvil
@@ -39,8 +39,8 @@ const ENEMY_SPAWN_COLOR = { r: 215, g: 67, b: 207 };   // #D743CF - enemy spawn
 // #733E39 pickup5
 // #A22633 pickup6
 // #F77622 pickup7
-
-// 
+const TORCH_SPAWN_COLOR = { r: 38, g: 92, b: 66 };   // #265C42 torch
+const INVISIBLE_WALL_COLOR = { r: 246, g: 117, b: 122 };   // #F6757A invisible wall
 
 
 interface DoorData {
@@ -66,8 +66,11 @@ export class Game extends Scene {
     walls: Phaser.Physics.Arcade.StaticGroup;
     doors: Phaser.Physics.Arcade.StaticGroup;
     doorDataList: DoorData[];
+    doorSprites: Phaser.GameObjects.Image[];
     playerSpawnPoint: SpawnPoint | null;
     enemySpawnPoints: SpawnPoint[];
+    torchSpawnPoints: SpawnPoint[];
+    invisibleWalls: Phaser.GameObjects.Image[];
     cursors: Phaser.Types.Input.Keyboard.CursorKeys;
     wasd: { up: Phaser.Input.Keyboard.Key; down: Phaser.Input.Keyboard.Key; left: Phaser.Input.Keyboard.Key; right: Phaser.Input.Keyboard.Key };
     maskGraphics: Phaser.GameObjects.Graphics;
@@ -84,6 +87,7 @@ export class Game extends Scene {
     playerHurtSound: Phaser.Sound.BaseSound;
     enemySpottedSound: Phaser.Sound.BaseSound;
     fireShootSound: Phaser.Sound.BaseSound;
+    slashSound: Phaser.Sound.BaseSound;
     transitionOverlay: Phaser.GameObjects.Graphics;
     isInputAllowed: boolean = true;
 
@@ -115,6 +119,18 @@ export class Game extends Scene {
     isDashing: boolean = false;
     // Debug mode toggle
     debugMode: boolean = true;
+    // Torches
+    torches: Phaser.Physics.Arcade.StaticGroup;
+    // Barrels
+    barrels: Phaser.Physics.Arcade.StaticGroup;
+    barrelSpawnPoints: SpawnPoint[];
+    // Health potions
+    healthPotions: Phaser.Physics.Arcade.Group;
+    healthPickupSound: Phaser.Sound.BaseSound;
+    // Player direction for sprite selection
+    currentPlayerDirection: 'up' | 'down' | 'horizontal' = 'down';
+    // Enemy tracking
+    remainingEnemies: number = 0;
 
     constructor() {
         super('Game');
@@ -208,10 +224,34 @@ export class Game extends Scene {
         this.playerHurtSound = this.sound.add('playerHurt', { volume: 0.5 });
         this.enemySpottedSound = this.sound.add('enemySpotted', { volume: 0.3 });
         this.fireShootSound = this.sound.add('fireShoot', { volume: 0.5 });
+        this.slashSound = this.sound.add('slashSound', { volume: 0.4 });
+
+        // Pickup sounds
+        this.healthPickupSound = this.sound.add('health', { volume: 0.5 });
 
         // Create enemies group and spawn at all enemy spawn points
         this.enemies = this.physics.add.group();
         this.spawnEnemies();
+
+        // Create torches group and place torches
+        this.torches = this.physics.add.staticGroup();
+        this.createTorches();
+
+        // Add collision between player and torches
+        this.physics.add.collider(this.player, this.torches);
+
+        // Create barrels group and place barrels
+        this.barrels = this.physics.add.staticGroup();
+        this.createBarrels();
+
+        // Add collision between player and barrels
+        this.physics.add.collider(this.player, this.barrels);
+
+        // Create health potions group (initially empty)
+        this.healthPotions = this.physics.add.group();
+
+        // Add overlap detection for health potions and player
+        this.physics.add.overlap(this.player, this.healthPotions, this.onHealthPotionCollision as any, undefined, this);
 
     // Add collision between player and enemies (for damage)
     this.physics.add.overlap(this.player, this.enemies, this.onEnemyCollision as any, undefined, this);
@@ -224,6 +264,13 @@ export class Game extends Scene {
 
     // Escape key for debug toggle
     this.escapeKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
+
+        // Left click for basic attack
+        this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+            if (pointer.leftButtonDown()) {
+                this.performBasicAttack();
+            }
+        });
 
         // Create WASD keys
         this.wasd = {
@@ -353,8 +400,12 @@ export class Game extends Scene {
         this.walls = this.physics.add.staticGroup();
         this.doors = this.physics.add.staticGroup();
         this.doorDataList = [];
+        this.doorSprites = [];
         this.playerSpawnPoint = null;
         this.enemySpawnPoints = [];
+        this.torchSpawnPoints = [];
+        this.barrelSpawnPoints = [];
+        this.invisibleWalls = [];
 
         // IntGrid is 20x11, each cell represents 16x16 pixels in Tiles.png
         // With 2.0 scale, each cell is 32x32 in game world
@@ -412,6 +463,46 @@ export class Game extends Scene {
                     continue;
                 }
 
+                // Check for torch spawn point (#265C42)
+                if (Math.abs(r - TORCH_SPAWN_COLOR.r) < colorTolerance &&
+                    Math.abs(g - TORCH_SPAWN_COLOR.g) < colorTolerance &&
+                    Math.abs(b - TORCH_SPAWN_COLOR.b) < colorTolerance) {
+                    this.torchSpawnPoints.push({ x: worldX, y: worldY });
+                    console.log('Found torch spawn point:', worldX, worldY);
+                    continue;
+                }
+
+                // Check for barrel spawn point (#2CE8F5)
+                if (Math.abs(r - BARREL_SPAWN_COLOR.r) < colorTolerance &&
+                    Math.abs(g - BARREL_SPAWN_COLOR.g) < colorTolerance &&
+                    Math.abs(b - BARREL_SPAWN_COLOR.b) < colorTolerance) {
+                    this.barrelSpawnPoints.push({ x: worldX, y: worldY });
+                    console.log('Found barrel spawn point:', worldX, worldY);
+                    continue;
+                }
+
+                // Check for invisible wall (#F6757A)
+                if (Math.abs(r - INVISIBLE_WALL_COLOR.r) < colorTolerance &&
+                    Math.abs(g - INVISIBLE_WALL_COLOR.g) < colorTolerance &&
+                    Math.abs(b - INVISIBLE_WALL_COLOR.b) < colorTolerance) {
+                    // Create collision wall
+                    const wall = this.add.rectangle(worldX, worldY, tileSize, tileSize);
+                    this.physics.add.existing(wall, true);
+                    this.walls.add(wall);
+
+                    // Create invisible wall sprite (hidden by default)
+                    const invisibleWall = this.add.image(worldX, worldY, 'invisible-wall');
+                    invisibleWall.setScale(2.0);
+                    invisibleWall.setDepth(2); // Above background, visible when revealed
+                    invisibleWall.setVisible(false);
+                    // Store reference to collision body for toggling
+                    invisibleWall.setData('collisionBody', wall);
+                    this.invisibleWalls.push(invisibleWall);
+
+                    console.log('Found invisible wall:', worldX, worldY);
+                    continue;
+                }
+
                 // Check if pixel matches any door color
                 let isDoor = false;
                 for (const doorColor of DOOR_COLORS) {
@@ -423,6 +514,51 @@ export class Game extends Scene {
                         this.physics.add.existing(door, true);
                         door.setData('targetLevel', doorColor.targetLevel);
                         this.doors.add(door);
+
+                        // Determine if this is left or right door tile by checking adjacent pixel
+                        let isLeftDoor = true; // Default to left
+
+                        // Check pixel to the right
+                        if (x + 1 < source.width) {
+                            const rightPixelIndex = (y * source.width + (x + 1)) * 4;
+                            const rightR = pixels[rightPixelIndex];
+                            const rightG = pixels[rightPixelIndex + 1];
+                            const rightB = pixels[rightPixelIndex + 2];
+                            const rightA = pixels[rightPixelIndex + 3];
+
+                            // If right pixel is also a door (same color), this is left tile
+                            if (rightA >= 200 &&
+                                Math.abs(rightR - r) < colorTolerance &&
+                                Math.abs(rightG - g) < colorTolerance &&
+                                Math.abs(rightB - b) < colorTolerance) {
+                                isLeftDoor = true;
+                            }
+                        }
+
+                        // Check pixel to the left
+                        if (x - 1 >= 0) {
+                            const leftPixelIndex = (y * source.width + (x - 1)) * 4;
+                            const leftR = pixels[leftPixelIndex];
+                            const leftG = pixels[leftPixelIndex + 1];
+                            const leftB = pixels[leftPixelIndex + 2];
+                            const leftA = pixels[leftPixelIndex + 3];
+
+                            // If left pixel is also a door (same color), this is right tile
+                            if (leftA >= 200 &&
+                                Math.abs(leftR - r) < colorTolerance &&
+                                Math.abs(leftG - g) < colorTolerance &&
+                                Math.abs(leftB - b) < colorTolerance) {
+                                isLeftDoor = false;
+                            }
+                        }
+
+                        // Create visual door sprite with correct tile
+                        const doorTexture = isLeftDoor ? 'door-closed-left' : 'door-closed-right';
+                        const doorSprite = this.add.image(worldX, worldY, doorTexture);
+                        doorSprite.setScale(2.0);
+                        doorSprite.setDepth(1); // Above background, below player
+                        doorSprite.setData('isLeft', isLeftDoor); // Store for opening later
+                        this.doorSprites.push(doorSprite);
 
                         // Store door data for spawn point lookup
                         this.doorDataList.push({
@@ -454,6 +590,9 @@ export class Game extends Scene {
         // Clear existing enemies
         this.enemies.clear(true, true);
 
+        // Set remaining enemies count
+        this.remainingEnemies = this.enemySpawnPoints.length;
+
         const enemySprites = ['enemy', 'enemy2', 'enemy3'];
         const enemySpeed = 60;
 
@@ -472,8 +611,9 @@ export class Game extends Scene {
                 Math.sin(angle) * enemySpeed
             );
 
-            // Store the base speed for later
+            // Store the base speed and health
             enemy.setData('speed', enemySpeed);
+            enemy.setData('health', 3);
         }
 
         // Add collision between enemies and walls
@@ -482,6 +622,295 @@ export class Game extends Scene {
         console.log('Spawned', this.enemySpawnPoints.length, 'enemies');
     }
 
+    damageEnemy(enemy: Phaser.Physics.Arcade.Image, damage: number) {
+        const currentHealth = enemy.getData('health') || 0;
+        const newHealth = currentHealth - damage;
+        enemy.setData('health', newHealth);
+
+        console.log('[ENEMY] Enemy damaged! Health:', currentHealth, '->', newHealth);
+
+        // Flash enemy to indicate damage
+        this.tweens.add({
+            targets: enemy,
+            alpha: 0.5,
+            duration: 50,
+            yoyo: true,
+            repeat: 0,
+            onComplete: () => { enemy.setAlpha(1); }
+        });
+
+        // Check if enemy is defeated
+        if (newHealth <= 0) {
+            this.remainingEnemies--;
+            console.log('[ENEMY] Enemy defeated! Remaining:', this.remainingEnemies);
+            enemy.destroy();
+
+            // Open doors when all enemies defeated
+            if (this.remainingEnemies <= 0) {
+                this.openDoors();
+            }
+        }
+    }
+
+    openDoors() {
+        console.log('[DOORS] All enemies defeated! Opening doors...');
+
+        // Play door open sound
+        if (this.doorOpenSound) {
+            this.doorOpenSound.play();
+        }
+
+        // Change all door sprites to open (use correct left/right sprite)
+        for (const doorSprite of this.doorSprites) {
+            const isLeft = doorSprite.getData('isLeft');
+            const openTexture = isLeft ? 'door-open-left' : 'door-open-right';
+            doorSprite.setTexture(openTexture);
+        }
+    }
+
+    createTorches() {
+        // Clear existing torches
+        this.torches.clear(true, true);
+
+        // Spawn torches at spawn points from IntGrid
+        for (const pos of this.torchSpawnPoints) {
+            const torch = this.torches.create(pos.x, pos.y, 'torch') as Phaser.Physics.Arcade.Image;
+            torch.setScale(2.0);
+            torch.setDepth(3); // Below overlay, above most other things
+            torch.setData('lit', false);
+            torch.setData('lightId', null);
+        }
+
+        console.log('Created', this.torchSpawnPoints.length, 'torches');
+    }
+
+    createBarrels() {
+        // Clear existing barrels
+        this.barrels.clear(true, true);
+
+        // Spawn barrels at spawn points from IntGrid
+        for (const pos of this.barrelSpawnPoints) {
+            const barrel = this.barrels.create(pos.x, pos.y, 'barrel') as Phaser.Physics.Arcade.Image;
+            barrel.setScale(2.0);
+            barrel.setDepth(3); // Below overlay
+        }
+
+        console.log('Created', this.barrelSpawnPoints.length, 'barrels');
+    }
+
+    destroyBarrel(barrel: Phaser.Physics.Arcade.Image) {
+        const x = barrel.x;
+        const y = barrel.y;
+
+        // Create destruction particles
+        const particleCount = 10;
+        for (let i = 0; i < particleCount; i++) {
+            const angle = (Math.PI * 2 * i) / particleCount;
+            const speed = 50 + Math.random() * 100;
+
+            // Create particle sprite
+            const particle = this.add.rectangle(x, y, 4, 4, 0x8B5A3C); // Brown color
+            particle.setDepth(5);
+
+            // Add physics to particle
+            this.physics.add.existing(particle);
+            const particleBody = particle.body as Phaser.Physics.Arcade.Body;
+            particleBody.setVelocity(
+                Math.cos(angle) * speed,
+                Math.sin(angle) * speed
+            );
+
+            // Fade out and destroy particle
+            this.tweens.add({
+                targets: particle,
+                alpha: 0,
+                duration: 500,
+                onComplete: () => particle.destroy()
+            });
+        }
+
+        // Create debris sprite at barrel location
+        const debris = this.add.image(x, y, 'invisible-wall');
+        debris.setScale(2.0);
+        debris.setDepth(1); // Below player
+
+        // Spawn health potion
+        this.spawnHealthPotion(x, y);
+
+        // Destroy barrel
+        barrel.destroy();
+
+        console.log('[BARREL] Barrel destroyed at', x, y);
+    }
+
+    spawnHealthPotion(x: number, y: number) {
+        const potion = this.healthPotions.create(x, y, 'health-potion') as Phaser.Physics.Arcade.Image;
+        potion.setScale(2.0);
+        potion.setDepth(4);
+
+        // Add a gentle floating animation
+        this.tweens.add({
+            targets: potion,
+            y: y - 4,
+            duration: 800,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut'
+        });
+
+        console.log('[POTION] Health potion spawned at', x, y);
+    }
+
+    onHealthPotionCollision(_player: Phaser.GameObjects.GameObject, potion: Phaser.GameObjects.GameObject) {
+        const potionSprite = potion as Phaser.Physics.Arcade.Image;
+
+        // Only heal if not at max health
+        if (this.playerHealth < this.playerMaxHealth) {
+            if (this.healthPickupSound) this.healthPickupSound.play();
+            this.playerHealth = Math.min(this.playerHealth + 2, this.playerMaxHealth);
+            this.ui.updateHealthDisplay();
+            console.log('[POTION] Healed player! Health:', this.playerHealth);
+
+            // Play a collect effect
+            this.tweens.add({
+                targets: potionSprite,
+                alpha: 0,
+                scale: 3,
+                duration: 200,
+                onComplete: () => potionSprite.destroy()
+            });
+        } else {
+            console.log('[POTION] Player at max health, cannot collect');
+        }
+    }
+
+    onFireHitTorch(fire: Phaser.GameObjects.GameObject, torch: Phaser.GameObjects.GameObject) {
+        const torchSprite = torch as Phaser.Physics.Arcade.Image;
+        const fireSprite = fire as Phaser.Physics.Arcade.Sprite;
+
+        // Skip if torch is already lit or fire already hit something
+        if (torchSprite.getData('lit') || fireSprite.getData('hit')) {
+            return;
+        }
+
+        // Mark fire as hit
+        fireSprite.setData('hit', true);
+        fireSprite.setVelocity(0, 0);
+        if (fireSprite.body) {
+            (fireSprite.body as Phaser.Physics.Arcade.Body).enable = false;
+        }
+        fireSprite.setTexture('fire-hit');
+
+        // Destroy fire after hit animation
+        this.time.delayedCall(100, () => {
+            if (!fireSprite.active) return;
+            fireSprite.setTexture('fire-hit-end');
+            this.time.delayedCall(150, () => {
+                if (fireSprite && fireSprite.active) fireSprite.destroy();
+            });
+        });
+
+        // Light the torch
+        torchSprite.setData('lit', true);
+        torchSprite.setTexture('torch-lit');
+
+        // Add a light circle mask around the torch
+        const lightId = this.masks.addLightSource(torchSprite.x, torchSprite.y, 64);
+        torchSprite.setData('lightId', lightId);
+
+        console.log('Torch lit at', torchSprite.x, torchSprite.y);
+
+        // Set timer to extinguish after 5 seconds
+        this.time.delayedCall(5000, () => {
+            if (!torchSprite.active) return;
+
+            torchSprite.setData('lit', false);
+            torchSprite.setTexture('torch');
+
+            // Remove the light mask
+            const storedLightId = torchSprite.getData('lightId');
+            if (storedLightId !== null) {
+                this.masks.removeLightSource(storedLightId);
+                torchSprite.setData('lightId', null);
+            }
+
+            console.log('Torch extinguished at', torchSprite.x, torchSprite.y);
+        });
+    }
+
+    performBasicAttack() {
+        // Determine position in front of player based on current direction
+        let offsetX = 0;
+        let offsetY = 0;
+        const tileSize = 32; // Distance in front of player
+
+        // Use last movement direction to determine where to place slash
+        if (Math.abs(this.lastMoveX) > Math.abs(this.lastMoveY)) {
+            // Horizontal movement dominant
+            offsetX = this.lastMoveX > 0 ? tileSize : -tileSize;
+        } else {
+            // Vertical movement dominant (or no movement - default to down)
+            offsetY = this.lastMoveY > 0 ? tileSize : (this.lastMoveY < 0 ? -tileSize : tileSize);
+        }
+
+        const slashX = this.player.x + offsetX;
+        const slashY = this.player.y + offsetY;
+
+        if (this.slashSound) this.slashSound.play();
+        // Create slash sprite
+        const slash = this.physics.add.sprite(slashX, slashY, 'slash') as Phaser.Physics.Arcade.Sprite;
+        slash.setScale(2.0);
+        slash.setDepth(5); // Below player but above background
+        slash.setData('hit', false);
+
+        // Add collision with enemies
+        const slashHitEnemy = (slashObj: Phaser.GameObjects.GameObject, enemy: Phaser.GameObjects.GameObject) => {
+            const slashSprite = slashObj as Phaser.Physics.Arcade.Sprite;
+
+            // Only hit once
+            if (slashSprite.getData('hit')) return;
+            slashSprite.setData('hit', true);
+
+            // Disable physics body to prevent further collisions
+            if (slashSprite.body) {
+                (slashSprite.body as Phaser.Physics.Arcade.Body).enable = false;
+            }
+
+            const enemySprite = enemy as Phaser.Physics.Arcade.Image;
+            console.log('[SLASH] Hit enemy at', enemySprite.x, enemySprite.y);
+            this.damageEnemy(enemySprite, 2); // Slash does 2 damage
+        };
+
+        // Add collision with barrels
+        const slashHitBarrel = (slashObj: Phaser.GameObjects.GameObject, barrel: Phaser.GameObjects.GameObject) => {
+            const slashSprite = slashObj as Phaser.Physics.Arcade.Sprite;
+
+            // Only hit once
+            if (slashSprite.getData('hit')) return;
+            slashSprite.setData('hit', true);
+
+            // Disable physics body to prevent further collisions
+            if (slashSprite.body) {
+                (slashSprite.body as Phaser.Physics.Arcade.Body).enable = false;
+            }
+
+            const barrelSprite = barrel as Phaser.Physics.Arcade.Image;
+            console.log('[SLASH] Hit barrel at', barrelSprite.x, barrelSprite.y);
+            this.destroyBarrel(barrelSprite);
+        };
+
+        this.physics.add.overlap(slash, this.enemies, slashHitEnemy as any, undefined, this);
+        this.physics.add.overlap(slash, this.barrels, slashHitBarrel as any, undefined, this);
+
+        // Destroy slash after 100ms
+        this.time.delayedCall(100, () => {
+            if (slash && slash.active) {
+                slash.destroy();
+            }
+        });
+
+        console.log('[SLASH] Basic attack at', slashX, slashY);
+    }
 
     // Color mapping for each mask (mask number -> hex color)
     updateHeadColor(mask: number) {
@@ -642,10 +1071,19 @@ export class Game extends Scene {
                     if (lifetimeTimer) lifetimeTimer.remove(false);
                 };
 
+                // Special handler for enemy hits - deals 1 damage
+                const handleEnemyHit = (proj: Phaser.GameObjects.GameObject, enemy: Phaser.GameObjects.GameObject) => {
+                    const enemySprite = enemy as Phaser.Physics.Arcade.Image;
+                    this.damageEnemy(enemySprite, 1); // Fire does 1 damage
+                    handleHit(proj, enemy); // Then trigger normal hit behavior
+                };
+
                 // collide with walls, doors, enemies and world bounds
                 if (this.walls) this.physics.add.collider(fire, this.walls, handleHit as any, undefined, this);
                 if (this.doors) this.physics.add.collider(fire, this.doors, handleHit as any, undefined, this);
-                if (this.enemies) this.physics.add.collider(fire, this.enemies, handleHit as any, undefined, this);
+                if (this.enemies) this.physics.add.collider(fire, this.enemies, handleEnemyHit as any, undefined, this);
+                // Fire can light torches
+                if (this.torches) this.physics.add.overlap(fire, this.torches, this.onFireHitTorch as any, undefined, this);
 
                 // world bounds hit -> trigger same sequence
                 fire.setCollideWorldBounds(true);
@@ -792,6 +1230,12 @@ export class Game extends Scene {
         // Ignore door collisions if player just spawned on a door
         if (this.justSpawnedOnDoor) return;
 
+        // Prevent door usage if enemies remain
+        if (this.remainingEnemies > 0) {
+            console.log('[DOOR] Doors locked! Defeat all enemies first. Remaining:', this.remainingEnemies);
+            return;
+        }
+
         // Prevent multiple transitions
         if (this.isTransitioning) return;
         this.isTransitioning = true;
@@ -843,6 +1287,21 @@ export class Game extends Scene {
         this.walls.clear(true, true);
         this.doors.clear(true, true);
 
+        // Destroy all door sprites from previous level
+        if (this.doorSprites) {
+            this.doorSprites.forEach(sprite => sprite.destroy());
+            this.doorSprites = [];
+        }
+
+        // Destroy all invisible wall sprites from previous level
+        if (this.invisibleWalls) {
+            this.invisibleWalls.forEach(wall => wall.destroy());
+            this.invisibleWalls = [];
+        }
+
+        // Clear all light sources from previous level
+        this.masks.lightSources = [];
+
         // Track level transition
         this.previousLevel = this.currentLevel;
         this.currentLevel = levelIndex;
@@ -858,7 +1317,10 @@ export class Game extends Scene {
 
         // Re-add colliders
         this.physics.add.collider(this.player, this.walls);
+        this.physics.add.collider(this.player, this.torches);
+        this.physics.add.collider(this.player, this.barrels);
         this.physics.add.overlap(this.player, this.doors, this.onDoorCollision as any, undefined, this);
+        this.physics.add.overlap(this.player, this.healthPotions, this.onHealthPotionCollision as any, undefined, this);
 
         // Find door that leads back to previous level and spawn there
         const spawnDoor = this.doorDataList.find(d => d.targetLevel === this.previousLevel);
@@ -883,6 +1345,17 @@ export class Game extends Scene {
 
         // Spawn enemies for this level
         this.spawnEnemies();
+
+        // Recreate torches for new level
+        this.createTorches();
+
+        // Recreate barrels for new level
+        this.createBarrels();
+
+        // Clear health potions from previous level
+        if (this.healthPotions) {
+            this.healthPotions.clear(true, true);
+        }
 
         // Re-add enemy collision
     this.physics.add.overlap(this.player, this.enemies, this.onEnemyCollision as any, undefined, this);
@@ -977,12 +1450,55 @@ export class Game extends Scene {
         this.masks.update();
         this.ui.update();
 
+        // Update invisible wall visibility and collision (only visible with mask 3 when in mask shape)
+        if (this.masks.mask === 3) {
+            for (const wall of this.invisibleWalls) {
+                const isInMask = this.masks.isPointInMask(wall.x, wall.y);
+                wall.setVisible(isInMask);
+
+                // Disable collision when visible (wall is revealed, player can pass through)
+                const collisionBody = wall.getData('collisionBody') as Phaser.GameObjects.GameObject;
+                if (collisionBody && collisionBody.body) {
+                    (collisionBody.body as Phaser.Physics.Arcade.Body).enable = !isInMask;
+                }
+            }
+        } else {
+            // Hide all invisible walls when not using mask 3 and re-enable collision
+            for (const wall of this.invisibleWalls) {
+                wall.setVisible(false);
+
+                // Re-enable collision when not viewing with mask 3
+                const collisionBody = wall.getData('collisionBody') as Phaser.GameObjects.GameObject;
+                if (collisionBody && collisionBody.body) {
+                    (collisionBody.body as Phaser.Physics.Arcade.Body).enable = true;
+                }
+            }
+        }
+
         // Handle debug mode toggle with Escape key
         if (Phaser.Input.Keyboard.JustDown(this.escapeKey)) {
             this.debugMode = !this.debugMode;
             if (this.physics.world.debugGraphic) {
                 this.physics.world.debugGraphic.visible = this.debugMode;
             }
+
+            // Toggle player collision
+            if (this.debugMode) {
+                // Disable collision in debug mode
+                this.player.setCollideWorldBounds(false);
+                if (this.player.body) {
+                    (this.player.body as Phaser.Physics.Arcade.Body).checkCollision.none = true;
+                }
+                console.log('[DEBUG] Player collision DISABLED');
+            } else {
+                // Re-enable collision when debug mode off
+                this.player.setCollideWorldBounds(true);
+                if (this.player.body) {
+                    (this.player.body as Phaser.Physics.Arcade.Body).checkCollision.none = false;
+                }
+                console.log('[DEBUG] Player collision ENABLED');
+            }
+
             console.log('[DEBUG] Debug mode:', this.debugMode ? 'ON' : 'OFF');
         }
 

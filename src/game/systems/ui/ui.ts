@@ -94,12 +94,12 @@ export class UI {
     }
 
     createMaskDisplay() {
-        // Display current mask value in top-right for debugging
+        // Display remaining enemies count in top-right
         const pad = 8;
         this.maskValueText = this.game.add.text(
             this.game.camera.width - pad,
             pad,
-            `Mask: ${this.game.masks.mask}`,
+            `Remaining: ${this.game.remainingEnemies}`,
             {
                 font: '16px monospace',
                 color: '#ffffff'
@@ -218,9 +218,9 @@ export class UI {
     }
 
     update() {
-        // Update on-screen mask value display
+        // Update on-screen remaining enemies display
         if (this.maskValueText) {
-            this.maskValueText.setText(`Mask: ${this.game.masks.mask}`);
+            this.maskValueText.setText(`Remaining: ${this.game.remainingEnemies}`);
             // Keep positioned top-right in case camera size changes
             const pad = 8;
             this.maskValueText.setPosition(this.game.camera.width - pad, pad);
