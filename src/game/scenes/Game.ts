@@ -2,6 +2,7 @@ import { Scene } from 'phaser';
 import { Masks } from '../systems/masks/masks';
 import { Ability } from '../systems/abilities/abilities';
 import { UI } from '../systems/ui/ui';
+import ColorReplacePipelinePlugin from 'phaser3-rex-plugins/plugins/colorreplacepipeline-plugin.js';
 
 // Door color mapping: RGB color -> target level
 // Add new colors here to create doors to different levels
@@ -57,6 +58,9 @@ export class Game extends Scene {
     background: Phaser.GameObjects.Image;
     player: Phaser.Physics.Arcade.Image;
     playerContainer: Phaser.GameObjects.Container;
+    playerHead: Phaser.GameObjects.Image;
+    playerBody: Phaser.GameObjects.Image;
+    headColorReplace: any; // ColorReplace pipeline instance
     enemies: Phaser.Physics.Arcade.Group;
     walls: Phaser.Physics.Arcade.StaticGroup;
     doors: Phaser.Physics.Arcade.StaticGroup;
@@ -130,15 +134,51 @@ export class Game extends Scene {
         this.createCollisionLayer();
 
         const playerStart = this.playerSpawnPoint || { x: 200, y: 250 };
+
+        // Create physics body (invisible - just for collisions)
         this.player = this.physics.add.image(playerStart.x, playerStart.y, 'player-front');
         this.player.setScale(2.0);
         this.player.setCollideWorldBounds(true);
+        this.player.setAlpha(0); // Hide the physics sprite
 
-        // Smaller hitbox for better game feel (28x28, centered on 32x32 sprite)
+        // Smaller hitbox for better game feel
         this.player.body?.setSize(14, 14);
+
+        // Create visual container for split sprites
+        this.playerContainer = this.add.container(playerStart.x, playerStart.y);
+        this.playerContainer.setDepth(10); // Ensure container renders above background
+
+        // Sprites are 16x8 pixels, scaled 2x = 32x16 each
+        // Stack them vertically: head on top, body below
+
+        // Create body sprite (offset down from center)
+        this.playerBody = this.make.image({ x: 0, y: 8, key: 'body-front', add: false });
+        this.playerBody.setScale(2.0);
+
+        // Create head sprite (offset up from center)
+        this.playerHead = this.make.image({ x: 0, y: -8, key: 'head-front', add: false });
+        this.playerHead.setScale(2.0);
+
+        // Add to container (order matters: body first, then head on top)
+        this.playerContainer.add([this.playerBody, this.playerHead]);
+
+        // Set up ColorReplace shader on head
+        const colorReplacePipeline = (this.plugins.get('rexColorReplacePipeline') as ColorReplacePipelinePlugin);
+        if (colorReplacePipeline) {
+            this.headColorReplace = colorReplacePipeline.add(this.playerHead, {
+                originalColor: 0x000000,  // Color to replace (black by default)
+                newColor: 0x000000,       // New color (same by default)
+                epsilon: 0.4              // Color matching tolerance
+            });
+        }
 
         // Camera follows player
         this.camera.startFollow(this.player, true, 0.1, 0.1);
+
+        // Sync container position after every physics step for zero lag
+        this.physics.world.on('worldstep', () => {
+            this.playerContainer.setPosition(this.player.x, this.player.y);
+        });
 
         // Add collision between player and walls
         this.physics.add.collider(this.player, this.walls);
@@ -251,6 +291,8 @@ export class Game extends Scene {
                 console.log('[MASK] No ability mapping for mask:', mask);
             }
 
+            // Update head color based on mask
+            this.updateHeadColor(mask);
         });
 
         // Setup UI (health, mask display, touch controls)
@@ -436,6 +478,30 @@ export class Game extends Scene {
     }
 
 
+    // Color mapping for each mask (mask number -> hex color)
+    updateHeadColor(mask: number) {
+        if (!this.headColorReplace) return;
+
+        // Define colors for each mask
+        const maskColors: Record<number, number> = {
+            0: 0x000000,    // Default - no change (black to black)
+            1: 0x00FFFF,    // Dash - cyan
+            2: 0xFF4400,    // Attack - orange/fire
+            3: 0x00FF00,    // Interact - green
+            4: 0xFF00FF,    // Special - magenta
+        };
+
+        const newColor = maskColors[mask] ?? 0x000000;
+
+        // Update the ColorReplace shader
+        // originalColor is the color in the sprite to replace
+        // newColor is what to replace it with
+        this.headColorReplace.setOriginalColor(0x000000);  // Replace black pixels
+        this.headColorReplace.setNewColor(newColor);
+
+        console.log('[HEAD COLOR] Mask', mask, '-> Color', newColor.toString(16));
+    }
+
     tryUseAbility() {
         console.log('[ABILITY] tryUseAbility() called');
         console.log('[ABILITY] Current ability:', this.currentAbility, '(', Ability[this.currentAbility], ')');
@@ -507,12 +573,12 @@ export class Game extends Scene {
                 console.log('[ABILITY] Executing Attack');
                 // Simple attack stub: flash player and play a sound if available
                 this.tweens.add({
-                    targets: this.player,
+                    targets: this.playerContainer,
                     alpha: 0.3,
                     duration: 80,
                     yoyo: true,
                     repeat: 0,
-                    onComplete: () => { this.player.setAlpha(1); }
+                    onComplete: () => { this.playerContainer.setAlpha(1); }
                 });
                 if (this.fireShootSound) this.fireShootSound.play();
                 // spawn a fire projectile at the player and launch it forward
@@ -644,13 +710,13 @@ export class Game extends Scene {
 
         // Flash player to indicate damage
         this.tweens.add({
-            targets: this.player,
+            targets: this.playerContainer,
             alpha: 0.3,
             duration: 100,
             yoyo: true,
             repeat: 5,
             onComplete: () => {
-                this.player.setAlpha(1);
+                this.playerContainer.setAlpha(1);
                 this.isInvincible = false;
             }
         });
@@ -855,6 +921,9 @@ export class Game extends Scene {
     }
 
     update() {
+        // Sync player container to physics player position
+        this.playerContainer.setPosition(this.player.x, this.player.y);
+
         this.masks.update();
         this.ui.update();
 
@@ -916,17 +985,26 @@ export class Game extends Scene {
             const deadzone = 0.01;
             if (input.y < -deadzone) {
                 // Moving up - show back
-                this.player.setTexture('player-back');
-                this.player.setFlipX(false);
+                this.playerHead.setTexture('head-back');
+                this.playerBody.setTexture('body-back');
+                this.playerHead.setFlipX(false);
+                this.playerBody.setFlipX(false);
+                this.currentPlayerDirection = 'up';
             } else if (input.y > deadzone) {
                 // Moving down - show front
-                this.player.setTexture('player-front');
-                this.player.setFlipX(false);
+                this.playerHead.setTexture('head-front');
+                this.playerBody.setTexture('body-front');
+                this.playerHead.setFlipX(false);
+                this.playerBody.setFlipX(false);
+                this.currentPlayerDirection = 'down';
             } else if (Math.abs(input.x) > deadzone) {
                 // Moving horizontally - show profile
-                this.player.setTexture('player-profile');
+                this.playerHead.setTexture('head-profile');
+                this.playerBody.setTexture('body-profile');
                 // Flip sprite based on direction
-                this.player.setFlipX(input.x > 0);
+                this.playerHead.setFlipX(input.x > 0);
+                this.playerBody.setFlipX(input.x > 0);
+                this.currentPlayerDirection = 'horizontal';
             }
 
             // Play random footstep sound while moving
@@ -949,4 +1027,5 @@ export class Game extends Scene {
             }
         }
     }
+
 }

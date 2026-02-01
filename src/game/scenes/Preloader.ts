@@ -37,6 +37,14 @@ export class Preloader extends Scene
         this.load.image('player-back', 'Sprite-Ninja-Back.png');
         this.load.image('player-front', 'Sprite-Ninja-Front.png');
         this.load.image('player-profile', 'Sprite-Ninja-Profile.png');
+
+        // Player head/body split sprites (for shader effects)
+        this.load.image('head-front', 'head-front.png');
+        this.load.image('head-back', 'head-back.png');
+        this.load.image('head-profile', 'head-profile.png');
+        this.load.image('body-front', 'body-front.png');
+        this.load.image('body-back', 'body-back.png');
+        this.load.image('body-profile', 'body-profile.png');
         this.load.image('enemy', 'Tiles/tile_0108.png');
         this.load.image('enemy2', 'kpop-demon.png');
         this.load.image('enemy3', 'bubbly-sheep.png');

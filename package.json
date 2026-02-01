@@ -19,7 +19,6 @@
         "dev-nolog": "vite --config vite/config.dev.mjs",
         "build-nolog": "vite build --config vite/config.prod.mjs",
         "update:levels": "cp -a ggj-2026/simplified/. public/assets/"
-
     },
     "devDependencies": {
         "typescript": "~5.7.2",
@@ -27,6 +26,7 @@
     },
     "dependencies": {
         "phaser": "^3.90.0",
+        "phaser3-rex-plugins": "^1.80.18",
         "terser": "^5.39.0"
     }
 }
