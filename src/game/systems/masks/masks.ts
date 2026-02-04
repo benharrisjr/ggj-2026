@@ -44,7 +44,7 @@ const MASK_COLORS: Record<number, number> = {
 const MASK_SHAPES: Record<number, MaskShape[]> = {
     0: [
         // Default: circle around player
-        { type: 'circle', size: 24 }
+        { type: 'circle', size: 200 }
     ],
     1: [
         // Dash: narrower triangle
@@ -308,7 +308,31 @@ export class Masks {
 
             // Play spotted sound when enemy becomes visible
             if (enemyInMask && !wasVisible) {
-                this.game.enemySpottedSound.play();
+                // this.game.enemySpottedSound.play();
+                const xOffset = - 16;
+                const yOffset = - 60;
+                
+                const enemyAlert = this.game.add.text(this.game.player.x + xOffset, this.game.player.y + yOffset, '!', 
+                    {   
+                        color: 'red',
+                        fontSize: 42,
+                        shadow: {
+                            offsetX: 5,
+                            offsetY: 5,
+                            color: "black",
+                            blur: 7,
+                            stroke: true,
+                            fill: true
+                        }
+                    });
+
+                this.game.events.on('update', () => {
+                    enemyAlert.setPosition(this.game.player.x + xOffset, this.game.player.y + yOffset);
+                });
+
+                this.game.time.delayedCall(500, () => {
+                    enemyAlert.removeFromDisplayList()
+                })
             }
 
             // Check if enemy is behind the player (outside forward 180 degree arc)

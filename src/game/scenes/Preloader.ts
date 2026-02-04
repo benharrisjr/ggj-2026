@@ -105,6 +105,10 @@ export class Preloader extends Scene
         this.load.audio('slashSound', 'audio/slash.wav');
         this.load.audio('health', 'audio/health.wav');
         this.load.audio('teleport', 'audio/teleport.wav');
+        this.load.audio('whiff1', 'audio/whiff_1.wav')
+        this.load.audio('whiff2', 'audio/whiff_2.mp3')
+        this.load.audio('whiff3', 'audio/whiff_3.mp3')
+        this.load.audio('chop', 'audio/chop.wav')
 
         // Music tracks
         this.load.audio('menuMusic', 'audio/music/menu.mp3');
@@ -143,6 +147,10 @@ export class Preloader extends Scene
         this.load.image('fire', 'effects/fire.png');
         this.load.image('fire-hit', 'effects/fire-hit.png');
         this.load.image('fire-hit-end', 'effects/fire-hit-end.png');
+        this.load.spritesheet('sword-slash', 'effects/sword-slash.png', {
+            frameWidth: 64,
+            frameHeight: 47,
+        });
 
         // Environment objects
         this.load.image('torch', 'torch.png');
