@@ -89,6 +89,7 @@ export class Game extends Scene {
     enemySpottedSound: Phaser.Sound.BaseSound;
     fireShootSound: Phaser.Sound.BaseSound;
     slashSound: Phaser.Sound.BaseSound;
+    whiffSound: Phaser.Sound.BaseSound;
     teleportSound: Phaser.Sound.BaseSound;
     transitionOverlay: Phaser.GameObjects.Graphics;
     isInputAllowed: boolean = true;
@@ -167,7 +168,7 @@ export class Game extends Scene {
         this.levelMusicLoop = this.sound.add('levelMusicLoop', { loop: true, volume: 0.4 });
         this.bossMusic = this.sound.add('bossMusic', { loop: true, volume: 0.5 });
         this.puzzleMusic = this.sound.add('puzzleMusic', { loop: true, volume: 0.4 });
-        this.levelMusic.play();
+        // this.levelMusic.play();
         this.levelMusic.on('complete', () => {
             this.levelMusicLoop.play();
         });
@@ -230,7 +231,7 @@ export class Game extends Scene {
         // Load all footstep sound variations
         this.footstepSounds = [];
         for (let i = 1; i <= 9; i++) {
-            const sound = this.sound.add(`footstep0${i}`, { volume: 0.2 });
+            const sound = this.sound.add(`footstep0${i}`, { volume: 0.1 });
             sound.on('complete', () => {
                 this.isPlayingFootstep = false;
             });
@@ -245,7 +246,8 @@ export class Game extends Scene {
         this.playerHurtSound = this.sound.add('playerHurt', { volume: 0.5 });
         this.enemySpottedSound = this.sound.add('enemySpotted', { volume: 0.3 });
         this.fireShootSound = this.sound.add('fireShoot', { volume: 0.5 });
-        this.slashSound = this.sound.add('slashSound', { volume: 0.4 });
+        this.slashSound = this.sound.add('chop', { volume: 0.7 });
+        this.whiffSound = this.sound.add('whiff1', { volume: 0.5 });
         this.teleportSound = this.sound.add('teleport', { volume: 0.5 });
 
         // Pickup sounds
@@ -344,8 +346,28 @@ export class Game extends Scene {
         this.abilityCooldowns[Ability.FireAttack] = 500;
         this.abilityCooldowns[Ability.Interact] = 250;
         this.abilityCooldowns[Ability.Special] = 2000;
+        this.abilityCooldowns[Ability.Transformation] = 2000;
+
         // ensure last-used defaults
         Object.keys(this.abilityCooldowns).forEach(k => { this.abilityLastUsed[Number(k)] = 0; });
+
+        // Create slash sprite
+        this.anims.create({
+            key: 'sword-slash-anim',
+            frames: this.anims.generateFrameNumbers('sword-slash', {frames: [0,1,2,3,4,5,6,7,8]}),
+            frameRate: 60,
+            repeat: 0,
+            hideOnComplete: true,
+        });
+
+        // Create smoke sprite
+        this.anims.create({
+            key: "smoke",
+            frames: this.anims.generateFrameNumbers('smoke-fire', {frames: [0,1,2,3,4,5,6,7] }),
+            frameRate: 16,
+            repeat: 0,
+            hideOnComplete: true,
+        });
 
         this.masks = new Masks(this);
         this.ui = new UI(this);
@@ -818,7 +840,12 @@ export class Game extends Scene {
         const currentHealth = enemy.getData('health') || 0;
         const newHealth = currentHealth - damage;
         enemy.setData('health', newHealth);
-
+        
+        // Fake hitstun/stutter effect on hit
+        this.scene.pause();
+        setTimeout(() => {
+            this.scene.resume();
+        }, 100)
         console.log('[ENEMY] Enemy damaged! Health:', currentHealth, '->', newHealth);
 
         // Apply knockback if source position provided
@@ -1159,6 +1186,26 @@ export class Game extends Scene {
         this.dashHitEnemy = false; // Reset hit flag for this dash
         this.dashInflictsDamage = inflictDamage; // Store whether this dash should damage enemies
         this.player.setVelocity(vx, vy);
+        this.playerHead.setAlpha(0.1);
+        this.playerBody.setAlpha(0.1);
+
+        const particles = this.add.particles(this.player.x, this.player.y, 'smoke-fire', {
+            frame: [0,1,2,3],
+            angle: { min: 0, max: 360 },
+            rotate: { min: 0, max: 360 },
+            speed: 60,
+            alpha: {min: 0.3, max: 0.5, end: 0},
+            frequency: 40,
+            scale: 2.0,
+            lifespan: 200, 
+            anim: 'smoke',
+        });
+
+        this.time.delayedCall(dashDuration, () => {
+            // emitter.stop(); // Stop emitting new particles
+            particles.stop(); // Destroy the particle manager to clean up
+        });
+        
         console.log('[DASH] Dash started. isDashing:', this.isDashing, 'dashHitEnemy:', this.dashHitEnemy, 'dashInflictsDamage:', this.dashInflictsDamage);
 
         // Make invincible for a short moment while dashing
@@ -1169,6 +1216,8 @@ export class Game extends Scene {
             this.isDashing = false;
             // stop dash movement gently
             this.player.setVelocity(0, 0);
+            this.playerHead.setAlpha(1);
+        this.playerBody.setAlpha(1);
         });
 
         console.log('Dash executed');
@@ -1178,31 +1227,35 @@ export class Game extends Scene {
         // Determine position in front of player based on current direction
         let offsetX = 0;
         let offsetY = 0;
-        const tileSize = 32; // Distance in front of player
+        const tileSize = 32 // Distance in front of player
+        let slashRotation = 0;
 
         // Use last movement direction to determine where to place slash
         if (Math.abs(this.lastMoveX) > Math.abs(this.lastMoveY)) {
             // Horizontal movement dominant
             offsetX = this.lastMoveX > 0 ? tileSize : -tileSize;
+            slashRotation = this.lastMoveX > 0 ? 0 : Math.PI; // 0 for right, 180 degrees (π radians) for left
         } else {
             // Vertical movement dominant (or no movement - default to down)
             offsetY = this.lastMoveY > 0 ? tileSize : (this.lastMoveY < 0 ? -tileSize : tileSize);
+            slashRotation = this.lastMoveY > 0 ? Math.PI / 2 : (this.lastMoveY < 0 ? -Math.PI / 2 : Math.PI / 2); // 90 degrees (π/2 radians) for down, -90 degrees (-π/2 radians) for up
         }
 
         const slashX = this.player.x + offsetX;
         const slashY = this.player.y + offsetY;
 
-        if (this.slashSound) this.slashSound.play();
-        // Create slash sprite
-        const slash = this.physics.add.sprite(slashX, slashY, 'slash') as Phaser.Physics.Arcade.Sprite;
-        slash.setScale(2.0);
-        slash.setDepth(5); // Below player but above background
+        const slash = this.physics.add.sprite(slashX, slashY, 'sword-slash') as Phaser.Physics.Arcade.Sprite;
+        slash.setScale(1.5);
+        slash.setDepth(100);
+        slash.setRotation(slashRotation);
+        slash.play('sword-slash-anim');
         slash.setData('hit', false);
+
 
         // Add collision with enemies
         const slashHitEnemy = (slashObj: Phaser.GameObjects.GameObject, enemy: Phaser.GameObjects.GameObject) => {
             const slashSprite = slashObj as Phaser.Physics.Arcade.Sprite;
-
+            if (this.slashSound) this.slashSound.play();
             // Only hit once
             if (slashSprite.getData('hit')) return;
             slashSprite.setData('hit', true);
@@ -1234,6 +1287,8 @@ export class Game extends Scene {
             console.log('[SLASH] Hit barrel at', barrelSprite.x, barrelSprite.y);
             this.destroyBarrel(barrelSprite);
         };
+
+        if (this.whiffSound) this.whiffSound.play();
 
         this.physics.add.overlap(slash, this.enemies, slashHitEnemy as any, undefined, this);
         this.physics.add.overlap(slash, this.barrels, slashHitBarrel as any, undefined, this);
@@ -1451,14 +1506,6 @@ export class Game extends Scene {
                 }, [], this);
 
                 // Create smoke effect on transform
-                const smokeAnimConfig:  Phaser.Types.Animations.Animation = {
-                    key: "smoke",
-                    frames: this.anims.generateFrameNumbers('smoke-fire', {frames: [0,1,2,3,4,5,6,7] }),
-                    frameRate: 16,
-                    repeat: 0,
-                    hideOnComplete: true,
-                }
-                this.anims.create(smokeAnimConfig);
                 let smokeSprite = this.add.sprite(this.player.x-4, this.player.y +4, 'smoke-fire');
                 smokeSprite.setDepth(100).setScale(5.0).play('smoke')
                 this.tweens.add({
