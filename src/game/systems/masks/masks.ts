@@ -52,8 +52,8 @@ const MASK_SHAPES: Record<number, MaskShape[]> = {
     ],
     2: [
         // Attack: forward triangle + small circle around player
-        { type: 'triangle', size: 60, rotateWithPlayer: true },
-        { type: 'circle', size: 24 }
+        { type: 'triangle', size: 90, rotateWithPlayer: true },
+        { type: 'circle', size: 24 },
     ],
     3: [
         // Interact: circle around player
@@ -213,13 +213,13 @@ export class Masks {
 
     // Cycle to next mask (wraps around)
     nextMask() {
-        const nextMask = (this.mask + 1) % 5; // 0-4
+        const nextMask = (this.mask + 1) % 6; // 0-5
         this.maskSelect(nextMask);
     }
 
     // Cycle to previous mask (wraps around)
     previousMask() {
-        const prevMask = (this.mask - 1 + 5) % 5; // 0-4
+        const prevMask = (this.mask - 1 + 6) % 6; // 0-5
         this.maskSelect(prevMask);
     }
 
