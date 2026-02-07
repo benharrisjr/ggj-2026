@@ -61,6 +61,7 @@ export class Game extends Scene {
     playerContainer: Phaser.GameObjects.Container;
     playerHead: Phaser.GameObjects.Image;
     playerBody: Phaser.GameObjects.Image;
+    playerShadow: Phaser.GameObjects.Ellipse;
     enemies: Phaser.Physics.Arcade.Group;
     walls: Phaser.Physics.Arcade.StaticGroup;
     doors: Phaser.Physics.Arcade.StaticGroup;
@@ -100,6 +101,7 @@ export class Game extends Scene {
     isInvincible: boolean = false;
     isKnockedBack: boolean = false;
     isTransformed: boolean = false;
+    isPlayerBusy: boolean = false;
 
     gamepadMessage: Phaser.GameObjects.Text;
 
@@ -113,6 +115,7 @@ export class Game extends Scene {
     spaceKey: Phaser.Input.Keyboard.Key;
     escapeKey: Phaser.Input.Keyboard.Key;
     previousGamepadAState: boolean = false;
+    previousGamepadBState: boolean = false;
     previousGamepadLTState: boolean = false;
     previousGamepadRTState: boolean = false;
     previousGamepadLBState: boolean = false;
@@ -202,6 +205,9 @@ export class Game extends Scene {
 
         // Sprites are 16x8 pixels, scaled 2x = 32x16 each
         // Stack them vertically: head on top, body below
+        
+        this.playerShadow = this.add.ellipse(0, 0, 28, 16, 0x000000, 0.3);
+        // const blur = this.playerShadow.preFX?.addBlur(40, 40 ,100,1);
 
         // Create body sprite (offset down from center)
         this.playerBody = this.make.image({ x: 0, y: 8, key: 'body-front', add: false });
@@ -220,6 +226,7 @@ export class Game extends Scene {
         // Sync container position after every physics step for zero lag
         this.physics.world.on('worldstep', () => {
             this.playerContainer.setPosition(this.player.x, this.player.y);
+            this.playerShadow.setPosition(this.player.x, this.player.y + 16)
         });
 
         // Add collision between player and walls
@@ -354,8 +361,8 @@ export class Game extends Scene {
         // Create slash sprite
         this.anims.create({
             key: 'sword-slash-anim',
-            frames: this.anims.generateFrameNumbers('sword-slash', {frames: [0,1,2,3,4,5,6,7,8]}),
-            frameRate: 60,
+            frames: this.anims.generateFrameNumbers('sword-slash', {frames: [3,4,5,6,7]}),
+            frameRate: 24,
             repeat: 0,
             hideOnComplete: true,
         });
@@ -1224,30 +1231,28 @@ export class Game extends Scene {
     }
 
     performBasicAttack() {
+
+        if (this.isPlayerBusy) return;
         // Determine position in front of player based on current direction
-        let offsetX = 0;
-        let offsetY = 0;
-        const tileSize = 32 // Distance in front of player
-        let slashRotation = 0;
-
-        // Use last movement direction to determine where to place slash
-        if (Math.abs(this.lastMoveX) > Math.abs(this.lastMoveY)) {
-            // Horizontal movement dominant
-            offsetX = this.lastMoveX > 0 ? tileSize : -tileSize;
-            slashRotation = this.lastMoveX > 0 ? 0 : Math.PI; // 0 for right, 180 degrees (π radians) for left
-        } else {
-            // Vertical movement dominant (or no movement - default to down)
-            offsetY = this.lastMoveY > 0 ? tileSize : (this.lastMoveY < 0 ? -tileSize : tileSize);
-            slashRotation = this.lastMoveY > 0 ? Math.PI / 2 : (this.lastMoveY < 0 ? -Math.PI / 2 : Math.PI / 2); // 90 degrees (π/2 radians) for down, -90 degrees (-π/2 radians) for up
+        const tileSize = 50 // Distance in front of player
+        this.isPlayerBusy = true;
+        // determine direction (fallback to up)
+        let dir = new Phaser.Math.Vector2(this.lastMoveX, this.lastMoveY);
+        if (Math.abs(dir.x) < 1e-3 && Math.abs(dir.y) < 1e-3) {
+            dir.set(0, -1);
         }
-
-        const slashX = this.player.x + offsetX;
-        const slashY = this.player.y + offsetY;
+        dir = dir.normalize();
+        
+        // Slash's offset
+        const slashX = this.player.x + (dir.x * tileSize);
+        const slashY = this.player.y + (dir.y * tileSize);
 
         const slash = this.physics.add.sprite(slashX, slashY, 'sword-slash') as Phaser.Physics.Arcade.Sprite;
+        slash.preFX?.addShadow(0, 0, 0.1, 1, 0xcccccc)
+        slash.setOrigin(0.5, 0.4)
         slash.setScale(1.5);
         slash.setDepth(100);
-        slash.setRotation(slashRotation);
+        slash.setRotation(dir.angle() + Math.PI * 2);
         slash.play('sword-slash-anim');
         slash.setData('hit', false);
 
@@ -1309,12 +1314,21 @@ export class Game extends Scene {
             this.physics.add.overlap(slash, this.boss, slashHitBoss as any, undefined, this);
         }
 
-        // Destroy slash after 100ms
-        this.time.delayedCall(100, () => {
-            if (slash && slash.active) {
-                slash.destroy();
-            }
-        });
+        // Destroy slash after 300ms
+        // this.time.delayedCall(300, () => {
+        //     if (slash && slash.active) {
+        //         slash.destroy();
+        //     }
+        //     this.isPlayerBusy = false;
+        // });
+
+        slash.once('animationcomplete', () => {
+            slash.destroy();
+            this.isPlayerBusy = false;
+            // if (slash && slash.active) {
+            //     slash.destroy();
+            // }
+          });
 
         console.log('[SLASH] Basic attack at', slashX, slashY);
     }
@@ -1930,8 +1944,8 @@ export class Game extends Scene {
 
         // Gamepad controls
         if (this.gamepad) {
-            // A button (button 0) - slash attack (rising edge)
-            const aPressed = !!(this.gamepad.buttons && this.gamepad.buttons[1] && this.gamepad.buttons[1].pressed);
+            // A button (button 0) - slash attack (rising edge) 
+            const aPressed = !!(this.gamepad.buttons?.[1]?.pressed);
             if (aPressed && !this.previousGamepadAState) {
                 console.log('[ACTION] Gamepad A button pressed - slash attack');
                 this.performBasicAttack();
@@ -1939,15 +1953,18 @@ export class Game extends Scene {
             this.previousGamepadAState = aPressed;
 
             // Left trigger (button 6) - dash
-            const ltPressed = !!(this.gamepad.buttons && this.gamepad.buttons[6] && this.gamepad.buttons[6].pressed);
-            if (ltPressed && !this.previousGamepadLTState) {
-                console.log('[ACTION] Gamepad LT pressed - dashing');
+            const ltPressed = !!(this.gamepad.buttons?.[6]?.pressed);
+            const bPressed = !!(this.gamepad.buttons?.[0]?.pressed)
+            if ((ltPressed && !this.previousGamepadLTState) ||
+                (bPressed && !this.previousGamepadBState)) {
+                console.log('[ACTION] Gamepad LT or B pressed - dashing');
                 this.performDash(600, false); // Long mobility dash
             }
             this.previousGamepadLTState = ltPressed;
+            this.previousGamepadBState = bPressed;
 
             // Right trigger (button 7) - mask ability
-            const rtPressed = !!(this.gamepad.buttons && this.gamepad.buttons[7] && this.gamepad.buttons[7].pressed);
+            const rtPressed = !!(this.gamepad.buttons?.[7]?.pressed);
             if (rtPressed && !this.previousGamepadRTState) {
                 console.log('[ACTION] Gamepad RT pressed - using mask ability');
                 this.tryUseAbility();
@@ -1955,7 +1972,7 @@ export class Game extends Scene {
             this.previousGamepadRTState = rtPressed;
 
             // Left bumper (button 4) - previous mask
-            const lbPressed = !!(this.gamepad.buttons && this.gamepad.buttons[4] && this.gamepad.buttons[4].pressed);
+            const lbPressed = !!(this.gamepad.buttons?.[4]?.pressed);
             if (lbPressed && !this.previousGamepadLBState) {
                 console.log('[ACTION] Gamepad LB pressed - previous mask');
                 this.masks.previousMask();
@@ -1963,7 +1980,7 @@ export class Game extends Scene {
             this.previousGamepadLBState = lbPressed;
 
             // Right bumper (button 5) - next mask
-            const rbPressed = !!(this.gamepad.buttons && this.gamepad.buttons[5] && this.gamepad.buttons[5].pressed);
+            const rbPressed = !!(this.gamepad.buttons?.[5]?.pressed);
             if (rbPressed && !this.previousGamepadRBState) {
                 console.log('[ACTION] Gamepad RB pressed - next mask');
                 this.masks.nextMask();
