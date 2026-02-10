@@ -116,6 +116,8 @@ export class Game extends Scene {
     escapeKey: Phaser.Input.Keyboard.Key;
     previousGamepadAState: boolean = false;
     previousGamepadBState: boolean = false;
+    previousGamepadXState: boolean = false;
+    previousGamepadYState: boolean = false;
     previousGamepadLTState: boolean = false;
     previousGamepadRTState: boolean = false;
     previousGamepadLBState: boolean = false;
@@ -123,6 +125,7 @@ export class Game extends Scene {
     dashHitEnemy: boolean = false;
     dashInflictsDamage: boolean = false;
     actionButtonPressed: boolean = false;
+    slashAnimToggle: boolean = true;
 
     // Last movement direction (unit vector) used for dash fallback
     lastMoveX: number = 0;
@@ -167,11 +170,11 @@ export class Game extends Scene {
 
         // Stop all existing sounds and play level music (looping)
         this.sound.stopAll();
-        this.levelMusic = this.sound.add('levelMusic', { loop: true, volume: 0.4 });
-        this.levelMusicLoop = this.sound.add('levelMusicLoop', { loop: true, volume: 0.4 });
-        this.bossMusic = this.sound.add('bossMusic', { loop: true, volume: 0.5 });
+        this.levelMusic = this.sound.add('levelMusic', { loop: true, volume: 0.3 });
+        this.levelMusicLoop = this.sound.add('levelMusicLoop', { loop: true, volume: 0.3 });
+        this.bossMusic = this.sound.add('bossMusic', { loop: true, volume: 0.4 });
         this.puzzleMusic = this.sound.add('puzzleMusic', { loop: true, volume: 0.4 });
-        // this.levelMusic.play();
+        this.levelMusic.play();
         this.levelMusic.on('complete', () => {
             this.levelMusicLoop.play();
         });
@@ -375,6 +378,25 @@ export class Game extends Scene {
             repeat: 0,
             hideOnComplete: true,
         });
+
+        // 1. Create a Graphics object
+        const graphics = this.add.graphics();
+        graphics.fillStyle(0xff0000, 1); // Red fill
+        graphics.fillEllipse(10, 10, 20, 20); // x, y, width, height
+
+        // 2. Generate the texture from the graphics object
+        graphics.generateTexture('ellipseTexture', 100, 100);
+
+        // 3. Destroy the graphic object (it is now a texture)
+        graphics.destroy();
+        
+        // this.anims.create({
+        //     key: "hit-particles-fx",
+        //     frames: this.anims.generateFrameNumbers('hit-particles-fx', {frames: [0,1,2,3,4,5,6,7] }),
+        //     frameRate: 16,
+        //     repeat: 0,
+        //     hideOnComplete: true,
+        // });
 
         this.masks = new Masks(this);
         this.ui = new UI(this);
@@ -847,12 +869,8 @@ export class Game extends Scene {
         const currentHealth = enemy.getData('health') || 0;
         const newHealth = currentHealth - damage;
         enemy.setData('health', newHealth);
+        // enemy.preFX?.addGradient(0xffffff, 0xffffff);
         
-        // Fake hitstun/stutter effect on hit
-        this.scene.pause();
-        setTimeout(() => {
-            this.scene.resume();
-        }, 100)
         console.log('[ENEMY] Enemy damaged! Health:', currentHealth, '->', newHealth);
 
         // Apply knockback if source position provided
@@ -875,13 +893,14 @@ export class Game extends Scene {
         }
 
         // Flash enemy to indicate damage (multiple flashes like player)
+        enemy.setTintFill();
         this.tweens.add({
             targets: enemy,
             alpha: 0.3,
             duration: 80,
             yoyo: true,
             repeat: 2,
-            onComplete: () => { enemy.setAlpha(1); }
+            onComplete: () => { enemy.setAlpha(1); enemy.clearTint(); }
         });
 
         // Check if enemy is defeated
@@ -1193,10 +1212,11 @@ export class Game extends Scene {
         this.dashHitEnemy = false; // Reset hit flag for this dash
         this.dashInflictsDamage = inflictDamage; // Store whether this dash should damage enemies
         this.player.setVelocity(vx, vy);
-        this.playerHead.setAlpha(0.1);
-        this.playerBody.setAlpha(0.1);
+        this.playerHead.setAlpha(0);
+        this.playerBody.setAlpha(0);
+        this.playerShadow.setAlpha(0.2);
 
-        const particles = this.add.particles(this.player.x, this.player.y, 'smoke-fire', {
+        const particleConfig: Phaser.Types.GameObjects.Particles.ParticleEmitterConfig = {
             frame: [0,1,2,3],
             angle: { min: 0, max: 360 },
             rotate: { min: 0, max: 360 },
@@ -1206,26 +1226,36 @@ export class Game extends Scene {
             scale: 2.0,
             lifespan: 200, 
             anim: 'smoke',
-        });
+            stopAfter: 10
+        }
 
-        this.time.delayedCall(dashDuration, () => {
-            // emitter.stop(); // Stop emitting new particles
-            particles.stop(); // Destroy the particle manager to clean up
-        });
+        const particles = this.add.particles(this.player.x, this.player.y, 'smoke-fire', particleConfig);
         
         console.log('[DASH] Dash started. isDashing:', this.isDashing, 'dashHitEnemy:', this.dashHitEnemy, 'dashInflictsDamage:', this.dashInflictsDamage);
 
         // Make invincible for a short moment while dashing
         this.isInvincible = true;
-
         this.time.delayedCall(dashDuration, () => {
-            this.isInvincible = false;
             this.isDashing = false;
+            this.playerShadow.setAlpha(1);
             // stop dash movement gently
             this.player.setVelocity(0, 0);
             this.playerHead.setAlpha(1);
-        this.playerBody.setAlpha(1);
+            this.playerBody.setAlpha(1);
+            const particles2 = this.add.particles(this.player.x, this.player.y, 'smoke-fire', particleConfig);
+            particles2.setDepth(10);
+            particles2.setAlpha(0.5);
+            particles2.stopAfter = 5;
+
         });
+
+        // Extension of invulnerability QOL
+        this.time.delayedCall(dashDuration + 100, () => {
+            this.isInvincible = false;
+            // stop dash movement gently
+            // particles.stop();
+        });
+        particles.onParticleDeath(() => console.log("PARTOICLE DEATHHHHHH"))
 
         console.log('Dash executed');
     }
@@ -1236,6 +1266,7 @@ export class Game extends Scene {
         // Determine position in front of player based on current direction
         const tileSize = 50 // Distance in front of player
         this.isPlayerBusy = true;
+        this.isInvincible = true;
         // determine direction (fallback to up)
         let dir = new Phaser.Math.Vector2(this.lastMoveX, this.lastMoveY);
         if (Math.abs(dir.x) < 1e-3 && Math.abs(dir.y) < 1e-3) {
@@ -1253,8 +1284,32 @@ export class Game extends Scene {
         slash.setScale(1.5);
         slash.setDepth(100);
         slash.setRotation(dir.angle() + Math.PI * 2);
-        slash.play('sword-slash-anim');
         slash.setData('hit', false);
+        this.slashAnimToggle = !this.slashAnimToggle;
+        slash.flipY = this.slashAnimToggle;
+
+        slash.play('sword-slash-anim');
+
+        // const particleX = slashX + tileSize;
+        // const particleY = slashY + tileSize;
+        // const fxAngle = dir.angle();
+        // console.log("ANGLEE: ",fxAngle)
+        // const particles = this.add.particles(particleX, particleY, 'ellipseTexture', {
+        //     angle: dir.angle() + Math.PI * 2, 
+        //     // rotate: { min: 0, max: 360 },
+        //     speed:300,
+        //     alpha: {min: 0.7, max: 1, end: 1},
+        //     frequency: 100,
+        //     scale: 1.0,
+        //     lifespan: 100, 
+        //     // maxVelocityX: 300,
+        //     // maxVelocityY: 300,            
+        //     // anim: 'smoke',
+        // });
+        // this.time.delayedCall(400, () => {
+        //     // emitter.stop(); // Stop emitting new particles
+        //     particles.stop(); // Destroy the particle manager to clean up
+        // });
 
 
         // Add collision with enemies
@@ -1272,7 +1327,9 @@ export class Game extends Scene {
 
             const enemySprite = enemy as Phaser.Physics.Arcade.Image;
             console.log('[SLASH] Hit enemy at', enemySprite.x, enemySprite.y);
-            this.damageEnemy(enemySprite, 2, slashSprite.x, slashSprite.y); // Slash does 2 damage with knockback
+            this.camera.shake(100, 0.015, true);
+            // createHitParticles();
+            this.damageEnemy(enemySprite, 1, slashSprite.x, slashSprite.y); // Slash does 2 damage with knockback
         };
 
         // Add collision with barrels
@@ -1325,12 +1382,117 @@ export class Game extends Scene {
         slash.once('animationcomplete', () => {
             slash.destroy();
             this.isPlayerBusy = false;
+            this.isInvincible = false;
             // if (slash && slash.active) {
             //     slash.destroy();
             // }
           });
 
         console.log('[SLASH] Basic attack at', slashX, slashY);
+    }
+
+    performFireBall() {
+        console.log('[ABILITY] Executing Fire Attack');
+        // Simple attack stub: flash player and play a sound if available
+        this.tweens.add({
+            targets: this.playerContainer,
+            alpha: 0.3,
+            duration: 80,
+            yoyo: true,
+            repeat: 0,
+            onComplete: () => { this.playerContainer.setAlpha(1); }
+        });
+
+        if (this.fireShootSound) this.fireShootSound.play();
+        // spawn a fire projectile at the player and launch it forward
+        const px = this.player.x;
+        const py = this.player.y; 
+
+        // determine direction (fallback to up)
+        let dir = new Phaser.Math.Vector2(this.lastMoveX, this.lastMoveY);
+        if (Math.abs(dir.x) < 1e-3 && Math.abs(dir.y) < 1e-3) {
+            dir.set(0, -1);
+        }
+        dir = dir.normalize();
+
+        const speed = 600;
+
+        // create physics sprite for the fire projectile
+        const fire = this.physics.add.sprite(px, py, 'fire') as Phaser.Physics.Arcade.Sprite;
+        // Rotate projectile to face its travel direction. If your sprite art is not aligned
+        // to the right (0 radians), add an offset like +Math.PI/2 or -Math.PI/2 as needed.
+        fire.setRotation(dir.angle() + Math.PI / 2);
+        fire.setScale(2.0);
+        // fire.body.setAllowGravity(false);
+        fire.setVelocity(dir.x * speed, dir.y * speed);
+        fire.setData('hit', false);
+
+        // ensure it doesn't live forever
+        const lifetime = 3000;
+        const lifetimeTimer = this.time.delayedCall(lifetime, () => {
+            if (fire && fire.active) fire.destroy();
+        });
+
+        // collision handler for "anything"
+        const handleHit = (proj: Phaser.GameObjects.GameObject, _other: Phaser.GameObjects.GameObject) => {
+            const p = proj as Phaser.Physics.Arcade.Sprite;
+            if (p.getData('hit')) return;
+            this.camera.shake(80, 0.010);
+            p.setData('hit', true);
+
+            // stop movement and disable physics body to prevent further collisions
+            p.setVelocity(0, 0);
+            if (p.body) {
+                (p.body as Phaser.Physics.Arcade.Body).enable = false;
+            }
+            p.setTexture('fire-hit');
+
+            // short delay then final hit texture then destroy
+            this.time.delayedCall(100, () => {
+                if (!p.active) return;
+                p.setTexture('fire-hit-end');
+                this.time.delayedCall(150, () => {
+                    if (p && p.active) p.destroy();
+                });
+            });
+
+            // cancel lifetime timer
+            if (lifetimeTimer) lifetimeTimer.remove(false);
+        };
+
+        // Special handler for enemy hits - deals 1 damage
+        const handleEnemyHit = (proj: Phaser.GameObjects.GameObject, enemy: Phaser.GameObjects.GameObject) => {
+            const enemySprite = enemy as Phaser.Physics.Arcade.Image;
+            const fireSprite = proj as Phaser.Physics.Arcade.Sprite;
+            this.camera.shake(100, 0.015, true);
+            this.damageEnemy(enemySprite, 1, fireSprite.x, fireSprite.y); // Fire does 1 damage with knockback
+            handleHit(proj, enemy); // Then trigger normal hit behavior
+        };
+        // const handleBossHit = (proj: Phaser.GameObjects.GameObject, enemy: Phaser.GameObjects.GameObject) => {
+        //     const enemySprite = enemy as Phaser.Physics.Arcade.Image;
+        //     const fireSprite = proj as Phaser.Physics.Arcade.Sprite;
+        //     this.camera.shake(100, 0.015, true);
+        //     this.damageEnemy(enemySprite, 1, fireSprite.x, fireSprite.y); // Fire does 1 damage with knockback
+        //     handleHit(proj, enemy); // Then trigger normal hit behavior
+        // };
+
+        // collide with walls, doors, enemies and world bounds
+        if (this.walls) this.physics.add.collider(fire, this.walls, handleHit as any, undefined, this);
+        if (this.doors) this.physics.add.collider(fire, this.doors, handleHit as any, undefined, this);
+        if (this.enemies) this.physics.add.collider(fire, this.enemies, handleEnemyHit as any, undefined, this);
+        if (this.boss) this.physics.add.collider(fire, this.boss, handleEnemyHit as any, undefined, this);
+        // Fire can light torches
+        if (this.torches) this.physics.add.overlap(fire, this.torches, this.onFireHitTorch as any, undefined, this);
+
+        // world bounds hit -> trigger same sequence
+        fire.setCollideWorldBounds(true);
+        fire.body.onWorldBounds = true;
+        this.physics.world.on('worldbounds', (body: Phaser.Physics.Arcade.Body) => {
+            if (body.gameObject === fire) {
+                handleHit(fire, body.gameObject);
+            }
+        });
+        console.log('Used Attack');
     }
 
     // Get head texture based on direction and current mask
@@ -1401,96 +1563,7 @@ export class Game extends Scene {
                 break;
             }
             case Ability.FireAttack: {
-                console.log('[ABILITY] Executing Fire Attack');
-                // Simple attack stub: flash player and play a sound if available
-                this.tweens.add({
-                    targets: this.playerContainer,
-                    alpha: 0.3,
-                    duration: 80,
-                    yoyo: true,
-                    repeat: 0,
-                    onComplete: () => { this.playerContainer.setAlpha(1); }
-                });
-                if (this.fireShootSound) this.fireShootSound.play();
-                // spawn a fire projectile at the player and launch it forward
-                const px = this.player.x;
-                const py = this.player.y; 
-
-                // determine direction (fallback to up)
-                let dir = new Phaser.Math.Vector2(this.lastMoveX, this.lastMoveY);
-                if (Math.abs(dir.x) < 1e-3 && Math.abs(dir.y) < 1e-3) {
-                    dir.set(0, -1);
-                }
-                dir = dir.normalize();
-
-                const speed = 600;
-
-                // create physics sprite for the fire projectile
-                const fire = this.physics.add.sprite(px, py, 'fire') as Phaser.Physics.Arcade.Sprite;
-                // Rotate projectile to face its travel direction. If your sprite art is not aligned
-                // to the right (0 radians), add an offset like +Math.PI/2 or -Math.PI/2 as needed.
-                fire.setRotation(dir.angle() + Math.PI / 2);
-                fire.setScale(1.0);
-                fire.body.setAllowGravity(false);
-                fire.setVelocity(dir.x * speed, dir.y * speed);
-                fire.setData('hit', false);
-
-                // ensure it doesn't live forever
-                const lifetime = 3000;
-                const lifetimeTimer = this.time.delayedCall(lifetime, () => {
-                    if (fire && fire.active) fire.destroy();
-                });
-
-                // collision handler for "anything"
-                const handleHit = (proj: Phaser.GameObjects.GameObject, _other: Phaser.GameObjects.GameObject) => {
-                    const p = proj as Phaser.Physics.Arcade.Sprite;
-                    if (p.getData('hit')) return;
-                    p.setData('hit', true);
-
-                    // stop movement and disable physics body to prevent further collisions
-                    p.setVelocity(0, 0);
-                    if (p.body) {
-                        (p.body as Phaser.Physics.Arcade.Body).enable = false;
-                    }
-                    p.setTexture('fire-hit');
-
-                    // short delay then final hit texture then destroy
-                    this.time.delayedCall(100, () => {
-                        if (!p.active) return;
-                        p.setTexture('fire-hit-end');
-                        this.time.delayedCall(150, () => {
-                            if (p && p.active) p.destroy();
-                        });
-                    });
-
-                    // cancel lifetime timer
-                    if (lifetimeTimer) lifetimeTimer.remove(false);
-                };
-
-                // Special handler for enemy hits - deals 1 damage
-                const handleEnemyHit = (proj: Phaser.GameObjects.GameObject, enemy: Phaser.GameObjects.GameObject) => {
-                    const enemySprite = enemy as Phaser.Physics.Arcade.Image;
-                    const fireSprite = proj as Phaser.Physics.Arcade.Sprite;
-                    this.damageEnemy(enemySprite, 1, fireSprite.x, fireSprite.y); // Fire does 1 damage with knockback
-                    handleHit(proj, enemy); // Then trigger normal hit behavior
-                };
-
-                // collide with walls, doors, enemies and world bounds
-                if (this.walls) this.physics.add.collider(fire, this.walls, handleHit as any, undefined, this);
-                if (this.doors) this.physics.add.collider(fire, this.doors, handleHit as any, undefined, this);
-                if (this.enemies) this.physics.add.collider(fire, this.enemies, handleEnemyHit as any, undefined, this);
-                // Fire can light torches
-                if (this.torches) this.physics.add.overlap(fire, this.torches, this.onFireHitTorch as any, undefined, this);
-
-                // world bounds hit -> trigger same sequence
-                fire.setCollideWorldBounds(true);
-                fire.body.onWorldBounds = true;
-                this.physics.world.on('worldbounds', (body: Phaser.Physics.Arcade.Body) => {
-                    if (body.gameObject === fire) {
-                        handleHit(fire, body.gameObject);
-                    }
-                });
-                console.log('Used Attack');
+                this.performFireBall();
                 break;
             }
             case Ability.Interact: {
@@ -1908,8 +1981,8 @@ export class Game extends Scene {
             }
         }
 
-        // Handle debug mode toggle with Escape key
-        if (Phaser.Input.Keyboard.JustDown(this.escapeKey) || (this.gamepad && this.gamepad.connected && this.gamepad.Y)) {
+        // Handle debug mode toggle with Escape key or SELECT button
+        if (Phaser.Input.Keyboard.JustDown(this.escapeKey) || (this.gamepad && this.gamepad.connected && this.gamepad.buttons[8].pressed)) {
             this.debugMode = !this.debugMode;
             if (this.physics.world.debugGraphic) {
                 this.physics.world.debugGraphic.visible = this.debugMode;
@@ -1942,8 +2015,58 @@ export class Game extends Scene {
             this.performDash(600, false); // Long mobility dash
         }
 
+        const key = {
+            G: this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.G),
+            H: this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.H),
+            J: this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.J),
+            K: this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.K),
+        }
+
+        const pad = {
+            A: this.gamepad?.buttons[0],
+            B: this.gamepad?.buttons[1],
+            X: this.gamepad?.buttons[3],
+            Y: this.gamepad?.buttons[4],
+        }
+
+        const basicAttackIsPressed = Boolean(key.G?.isDown || pad.X?.pressed);
+        const dashIsPressed = Boolean(key.H?.isDown || pad.A?.pressed);
+        const projectileIsPressed = Boolean(key.J?.isDown || pad.B?.pressed);
+        const abilityIsPressed = Boolean(key.K?.isDown || pad.Y?.pressed);
+        // const basicAttackIsPressed = key.G?.isDown || pad.A?.pressed;
+
+        // INPUT: BASIC ATTACK
+        if (basicAttackIsPressed && !this.previousGamepadXState) {
+            console.log("[NEW BASIC ATTACK]");
+            this.performBasicAttack();
+        }
+        this.previousGamepadXState = !!(basicAttackIsPressed);
+        
+        // INPUT: DASH
+        if (dashIsPressed && !this.previousGamepadAState) {
+            console.log("[DASH ATTACK]");
+            this.performDash(600, false);
+        }
+        this.previousGamepadAState = !!(dashIsPressed);
+
+
+        // INPUT: FIRE ATTACK
+        if (projectileIsPressed && !this.previousGamepadBState) {
+            console.log("[FIRE ATTACK]");
+            this.useAbility(Ability.FireAttack)
+        }
+        this.previousGamepadBState = !!(projectileIsPressed);
+
+        // INPUT: SPECIAL
+        if (abilityIsPressed && !this.previousGamepadYState) {
+            console.log("[SPECIAL ABILITY]");
+            this.tryUseAbility();
+        }
+        this.previousGamepadYState = !!(abilityIsPressed);
+
+        
         // Gamepad controls
-        if (this.gamepad) {
+        if (this.gamepad && false) {
             // A button (button 0) - slash attack (rising edge) 
             const aPressed = !!(this.gamepad.buttons?.[1]?.pressed);
             if (aPressed && !this.previousGamepadAState) {
@@ -2009,7 +2132,7 @@ export class Game extends Scene {
             // Set velocity based on input (normalize for consistent speed)
             // Use a local vector so we can store the normalized facing for dash
             const mv = new Phaser.Math.Vector2(input.x, input.y);
-            if (mv.length() > 0) mv.normalize();
+            if (mv.length() > 0) mv.normalize(); 
             this.player.setVelocity(mv.x * 200, mv.y * 200);
             // Normalize body velocity to be safe
             this.player.body!.velocity.normalize().scale(200);
