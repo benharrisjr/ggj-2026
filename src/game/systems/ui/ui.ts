@@ -1,4 +1,5 @@
 import { Game } from "../../scenes/Game";
+import VirtualJoyStick from 'phaser3-rex-plugins/plugins/virtualjoystick.js';
 
 // Color mapping for each mask (same as head colors in Game.ts)
 const MASK_COLORS: Record<number, number> = {
@@ -21,14 +22,13 @@ export class UI {
     maskIcons: Phaser.GameObjects.Image[] = [];
     maskBaseScale: number = 2.0;
     maskSelectedScale: number = 3.0;
+    joystick: VirtualJoyStick | null = null;
     touchButtons: {
-        up?: Phaser.GameObjects.Image;
-        down?: Phaser.GameObjects.Image;
-        left?: Phaser.GameObjects.Image;
-        right?: Phaser.GameObjects.Image;
-        action?: Phaser.GameObjects.Image;
+        slash?: Phaser.GameObjects.Arc;
+        dash?: Phaser.GameObjects.Arc;
+        action?: Phaser.GameObjects.Arc;
     } = {};
-    touchInput = { up: false, down: false, left: false, right: false };
+    joystickInput = { x: 0, y: 0 };
 
     constructor(game: Game) {
         this.game = game;
@@ -39,9 +39,9 @@ export class UI {
         this.createMaskDisplay();
 
         // Create touch controls if touch is available
-        if (this.game.sys.game.device.input.touch) {
+        // if (this.game.sys.game.device.input.touch) {
             this.createTouchControls();
-        }
+        // }
     }
 
     createHealthUI() {
@@ -110,9 +110,8 @@ export class UI {
 
         // Create mask icons along the bottom of the screen
         const iconSize = 16; // Base size of mask icons at 1x scale
-        // Calculate spacing to accommodate the largest possible icon (selected scale)
-        const maxIconSize = iconSize * this.maskSelectedScale;
-        const iconSpacing = maxIconSize;
+        // Use tighter spacing (base scale + small padding)
+        const iconSpacing = iconSize * this.maskBaseScale + 4;
         const totalWidth = iconSpacing * 10;
         const startX = (this.game.camera.width - totalWidth) / 2 + (iconSpacing / 2);
         const startY = this.game.camera.height - 40;
@@ -124,100 +123,152 @@ export class UI {
             maskIcon.setDepth(1000);
             maskIcon.setScale(this.maskBaseScale);
             maskIcon.setOrigin(0.5, 0.5); // Center origin for scaling
+
+            // Make mask icons tappable for touch devices
+            maskIcon.setInteractive();
+            const maskIndex = i;
+            maskIcon.on('pointerdown', () => {
+                this.game.masks.maskSelect(maskIndex);
+                // Visual feedback: brief scale pulse
+                this.game.tweens.add({
+                    targets: maskIcon,
+                    scaleX: this.maskSelectedScale * 1.2,
+                    scaleY: this.maskSelectedScale * 1.2,
+                    duration: 100,
+                    yoyo: true,
+                    ease: 'Power2'
+                });
+            });
+
             this.maskIcons.push(maskIcon);
         }
     }
 
     createTouchControls() {
-        const buttonSize = 64;
-        const buttonSpacing = 16;
-        const startX = 32;
-        const startY = this.game.cameras.main.height - 140;
+        const screenWidth = this.game.cameras.main.width;
+        const screenHeight = this.game.cameras.main.height;
 
-        // Create buttons in a d-pad layout
-        // Up button (top center)
-        this.touchButtons.up = this.game.add.image(
-            startX + buttonSize + buttonSpacing,
-            startY - buttonSpacing,
-            'btn-up'
-        );
+        // Create virtual joystick on the left side
+        const joystickX = 80;
+        const joystickY = screenHeight - 80;
 
-        // Down button (bottom center)
-        this.touchButtons.down = this.game.add.image(
-            startX + buttonSize + buttonSpacing,
-            startY + buttonSize + buttonSpacing * 2,
-            'btn-down'
-        );
+        this.joystick = new VirtualJoyStick(this.game, {
+            x: joystickX,
+            y: joystickY,
+            radius: 50,
+            base: this.game.add.circle(0, 0, 50, 0x333333, 0.6).setDepth(998).setScrollFactor(0),
+            thumb: this.game.add.circle(0, 0, 24, 0xffffff, 0.8).setDepth(999).setScrollFactor(0),
+            dir: '8dir',
+            fixed: true
+        });
 
-        // Left button (middle left)
-        this.touchButtons.left = this.game.add.image(
-            startX,
-            startY + (buttonSize + buttonSpacing) / 2,
-            'btn-left'
-        );
+        console.log('Virtual joystick created');
 
-        // Right button (middle right)
-        this.touchButtons.right = this.game.add.image(
-            startX + (buttonSize + buttonSpacing) * 2,
-            startY + (buttonSize + buttonSpacing) / 2,
-            'btn-right'
-        );
+        // Create action buttons on the right side
+        const buttonRadius = 28;
+        const rightEdge = screenWidth - 50;
+        const bottomEdge = screenHeight - 80;
 
-        // Configure all buttons
-        Object.entries(this.touchButtons).forEach(([direction, button]) => {
-            if (!button || direction === 'action') return;
+        // Slash button (red/orange) - bottom right
+        const slashBtn = this.game.add.circle(rightEdge, bottomEdge, buttonRadius, 0xff4400, 0.8);
+        slashBtn.setScrollFactor(0);
+        slashBtn.setDepth(998);
+        slashBtn.setInteractive();
+        slashBtn.setStrokeStyle(3, 0xffffff, 0.5);
+        this.touchButtons.slash = slashBtn;
 
-            button.setScrollFactor(0); // Fixed to camera
-            button.setDepth(998); // Above game, below health UI
-            button.setScale(3.0);
-            button.setAlpha(0.7);
-            button.setInteractive();
+        // Draw a simple slash icon inside
+        const slashIcon = this.game.add.graphics();
+        slashIcon.setScrollFactor(0);
+        slashIcon.setDepth(999);
+        slashIcon.lineStyle(4, 0xffffff, 0.9);
+        slashIcon.lineBetween(rightEdge - 12, bottomEdge + 12, rightEdge + 12, bottomEdge - 12);
 
-            // Pointer down - activate
-            button.on('pointerdown', () => {
-                this.touchInput[direction as keyof typeof this.touchInput] = true;
-                button.setAlpha(1.0);
-            });
+        slashBtn.on('pointerdown', () => {
+            this.game.performBasicAttack();
+            slashBtn.setFillStyle(0xff6622, 1.0);
+        });
+        slashBtn.on('pointerup', () => {
+            slashBtn.setFillStyle(0xff4400, 0.8);
+        });
+        slashBtn.on('pointerout', () => {
+            slashBtn.setFillStyle(0xff4400, 0.8);
+        });
 
-            // Pointer up - deactivate
-            button.on('pointerup', () => {
-                this.touchInput[direction as keyof typeof this.touchInput] = false;
-                button.setAlpha(0.7);
-            });
+        // Dash button (cyan) - above and left of slash
+        const dashX = rightEdge - 60;
+        const dashY = bottomEdge - 50;
+        const dashBtn = this.game.add.circle(dashX, dashY, buttonRadius, 0x00ffff, 0.8);
+        dashBtn.setScrollFactor(0);
+        dashBtn.setDepth(998);
+        dashBtn.setInteractive();
+        dashBtn.setStrokeStyle(3, 0xffffff, 0.5);
+        this.touchButtons.dash = dashBtn;
 
-            // Pointer out - deactivate (for when finger slides off)
-            button.on('pointerout', () => {
-                this.touchInput[direction as keyof typeof this.touchInput] = false;
-                button.setAlpha(0.7);
-            });
+        // Draw a simple arrow/dash icon inside
+        const dashIcon = this.game.add.graphics();
+        dashIcon.setScrollFactor(0);
+        dashIcon.setDepth(999);
+        dashIcon.lineStyle(4, 0xffffff, 0.9);
+        dashIcon.lineBetween(dashX - 10, dashY, dashX + 10, dashY);
+        dashIcon.lineBetween(dashX + 4, dashY - 6, dashX + 10, dashY);
+        dashIcon.lineBetween(dashX + 4, dashY + 6, dashX + 10, dashY);
+
+        dashBtn.on('pointerdown', () => {
+            this.game.performDash(600, false);
+            dashBtn.setFillStyle(0x22ffff, 1.0);
+        });
+        dashBtn.on('pointerup', () => {
+            dashBtn.setFillStyle(0x00ffff, 0.8);
+        });
+        dashBtn.on('pointerout', () => {
+            dashBtn.setFillStyle(0x00ffff, 0.8);
+        });
+
+        // Action button (mask ability) - above slash, to the right of dash
+        const actionX = rightEdge;
+        const actionY = bottomEdge - 70;
+        const actionBtn = this.game.add.circle(actionX, actionY, buttonRadius, 0xff00ff, 0.8);
+        actionBtn.setScrollFactor(0);
+        actionBtn.setDepth(998);
+        actionBtn.setInteractive();
+        actionBtn.setStrokeStyle(3, 0xffffff, 0.5);
+        this.touchButtons.action = actionBtn;
+
+        // Draw a star/burst icon inside (4-pointed star for "special")
+        const actionIcon = this.game.add.graphics();
+        actionIcon.setScrollFactor(0);
+        actionIcon.setDepth(999);
+        actionIcon.lineStyle(3, 0xffffff, 0.9);
+        // Vertical line
+        actionIcon.lineBetween(actionX, actionY - 12, actionX, actionY + 12);
+        // Horizontal line
+        actionIcon.lineBetween(actionX - 12, actionY, actionX + 12, actionY);
+        // Diagonal lines (smaller)
+        actionIcon.lineBetween(actionX - 8, actionY - 8, actionX + 8, actionY + 8);
+        actionIcon.lineBetween(actionX + 8, actionY - 8, actionX - 8, actionY + 8);
+
+        actionBtn.on('pointerdown', () => {
+            this.game.tryUseAbility();
+            actionBtn.setFillStyle(0xff44ff, 1.0);
+        });
+        actionBtn.on('pointerup', () => {
+            actionBtn.setFillStyle(0xff00ff, 0.8);
+        });
+        actionBtn.on('pointerout', () => {
+            actionBtn.setFillStyle(0xff00ff, 0.8);
         });
 
         console.log('Touch controls created');
-
-        // Add an action button on the right side for touch devices
-        const actionX = this.game.cameras.main.width - 80;
-        const actionY = this.game.cameras.main.height - 120;
-        this.touchButtons.action = this.game.add.image(actionX, actionY, 'btn-action');
-        const actionBtn = this.touchButtons.action;
-        actionBtn.setScrollFactor(0);
-        actionBtn.setDepth(998);
-        actionBtn.setScale(3.0);
-        actionBtn.setAlpha(0.9);
-        actionBtn.setInteractive();
-        actionBtn.on('pointerdown', () => {
-            console.log('[ACTION] Touch action button pressed');
-            this.game.tryUseAbility();
-            actionBtn.setAlpha(1.0);
-        });
-        actionBtn.on('pointerup', () => {
-            actionBtn.setAlpha(0.9);
-        });
-        actionBtn.on('pointerout', () => {
-            actionBtn.setAlpha(0.9);
-        });
     }
 
     update() {
+        // Update joystick input values
+        if (this.joystick) {
+            this.joystickInput.x = this.joystick.forceX;
+            this.joystickInput.y = this.joystick.forceY;
+        }
+
         // Update on-screen remaining enemies display
         if (this.maskValueText) {
             this.maskValueText.setText(`Remaining: ${this.game.remainingEnemies}`);

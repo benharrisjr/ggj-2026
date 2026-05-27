@@ -65,6 +65,7 @@ export class Game extends Scene {
     enemies: Phaser.Physics.Arcade.Group;
     walls: Phaser.Physics.Arcade.StaticGroup;
     doors: Phaser.Physics.Arcade.StaticGroup;
+    doorCollider: Phaser.Physics.Arcade.Collider | null = null;
     doorDataList: DoorData[];
     doorSprites: Phaser.GameObjects.Image[];
     playerSpawnPoint: SpawnPoint | null;
@@ -232,8 +233,11 @@ export class Game extends Scene {
         // Add collision between player and walls
         this.physics.add.collider(this.player, this.walls);
 
-    // Add overlap detection for doors
+    // Add overlap detection for doors (triggers transition when walking through open door)
     this.physics.add.overlap(this.player, this.doors, this.onDoorCollision as any, undefined, this);
+
+    // Add collider to physically block player when doors are closed
+    this.doorCollider = this.physics.add.collider(this.player, this.doors);
 
         // Load all footstep sound variations
         this.footstepSounds = [];
@@ -427,7 +431,7 @@ export class Game extends Scene {
     calculateDoorSpawnOffset(doorX: number, doorY: number): { x: number; y: number } {
         const levelWidth = this.background.displayWidth;
         const levelHeight = this.background.displayHeight;
-        const offset = 48; // Spawn offset distance
+        const offset = 32; // Spawn offset distance
 
         // Calculate distance from each edge
         const distToLeft = doorX;
@@ -435,18 +439,24 @@ export class Game extends Scene {
         const distToTop = doorY;
         const distToBottom = levelHeight - doorY;
 
-        // Find which edge is closest
+        // Find which edge is closest (door is on this edge)
         const minDist = Math.min(distToLeft, distToRight, distToTop, distToBottom);
 
-        // Offset away from the closest edge (into the room)
+        // For horizontal walls (top/bottom), offset based on door's Y position
+        if (minDist === distToTop || minDist === distToBottom) {
+            const levelMidY = levelHeight / 2;
+            if (doorY < levelMidY) {
+                return { x: 0, y: offset };   // Door near top, spawn below
+            } else {
+                return { x: 0, y: -offset };  // Door near bottom, spawn above
+            }
+        }
+
+        // For vertical walls (left/right), offset into the room
         if (minDist === distToLeft) {
-            return { x: offset, y: 0 };  // Door on left, spawn to the right
-        } else if (minDist === distToRight) {
-            return { x: -offset, y: 0 }; // Door on right, spawn to the left
-        } else if (minDist === distToTop) {
-            return { x: 0, y: offset };  // Door on top, spawn below
+            return { x: offset, y: 0 };   // Door on left, spawn right
         } else {
-            return { x: 0, y: -offset }; // Door on bottom, spawn above
+            return { x: -offset, y: 0 };  // Door on right, spawn left
         }
     }
 
@@ -890,8 +900,8 @@ export class Game extends Scene {
             console.log('[ENEMY] Enemy defeated! Remaining:', this.remainingEnemies);
             enemy.destroy();
 
-            // Open doors when all enemies defeated
-            if (this.remainingEnemies <= 0) {
+            // Open doors when all enemies defeated (and no boss)
+            if (this.remainingEnemies <= 0 && !this.boss) {
                 this.openDoors();
             }
         }
@@ -948,6 +958,11 @@ export class Game extends Scene {
         // Play door open sound
         if (this.doorOpenSound) {
             this.doorOpenSound.play();
+        }
+
+        // Disable door collision so player can walk through
+        if (this.doorCollider) {
+            this.doorCollider.active = false;
         }
 
         // Change all door sprites to open (use correct left/right sprite)
@@ -1642,6 +1657,12 @@ export class Game extends Scene {
             return;
         }
 
+        // Prevent door usage if boss is still alive (level 2)
+        if (this.boss) {
+            console.log('[DOOR] Doors locked! Defeat the boss first.');
+            return;
+        }
+
         // Prevent multiple transitions
         if (this.isTransitioning) return;
         this.isTransitioning = true;
@@ -1755,6 +1776,9 @@ export class Game extends Scene {
         this.physics.add.overlap(this.player, this.doors, this.onDoorCollision as any, undefined, this);
         this.physics.add.overlap(this.player, this.healthPotions, this.onHealthPotionCollision as any, undefined, this);
 
+        // Re-add door collider (starts active - doors are closed until enemies defeated)
+        this.doorCollider = this.physics.add.collider(this.player, this.doors);
+
         // Find door that leads back to previous level and spawn there
         const spawnDoor = this.doorDataList.find(d => d.targetLevel === this.previousLevel);
         if (spawnDoor) {
@@ -1859,18 +1883,10 @@ export class Game extends Scene {
             }
         }
 
-        // Check touch controls
-        if (this.ui.touchInput.left) {
-            x -= 1;
-        }
-        if (this.ui.touchInput.right) {
-            x += 1;
-        }
-        if (this.ui.touchInput.up) {
-            y -= 1;
-        }
-        if (this.ui.touchInput.down) {
-            y += 1;
+        // Check virtual joystick (touch controls)
+        if (this.ui.joystick) {
+            x += this.ui.joystickInput.x;
+            y += this.ui.joystickInput.y;
         }
 
         return { x, y };
