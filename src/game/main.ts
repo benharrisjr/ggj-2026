@@ -20,6 +20,7 @@ const config: Phaser.Types.Core.GameConfig = {
         keyboard: true,
         mouse: true,
         touch: true,
+        activePointers: 3, // Enable multi-touch (joystick + 2 buttons simultaneously)
     },
     disableContextMenu: true,
     physics: {
