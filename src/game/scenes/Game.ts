@@ -115,6 +115,8 @@ export class Game extends Scene {
     abilityCooldowns: Record<number, number> = {};
     spaceKey: Phaser.Input.Keyboard.Key;
     escapeKey: Phaser.Input.Keyboard.Key;
+    qKey: Phaser.Input.Keyboard.Key;
+    eKey: Phaser.Input.Keyboard.Key;
     previousGamepadAState: boolean = false;
     previousGamepadBState: boolean = false;
     previousGamepadLTState: boolean = false;
@@ -300,15 +302,9 @@ export class Game extends Scene {
     // Escape key for debug toggle
     this.escapeKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
 
-        // Left click for basic attack, right click for mask ability
-        this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-            if (pointer.leftButtonDown()) {
-                this.performBasicAttack();
-            } else if (pointer.rightButtonDown()) {
-                console.log('[INPUT] Right mouse button pressed - using mask ability');
-                this.tryUseAbility();
-            }
-        });
+    // Q key for slash attack, E key for mask ability
+    this.qKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.Q);
+    this.eKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.E);
 
         // Create WASD keys
         this.wasd = {
@@ -317,6 +313,17 @@ export class Game extends Scene {
             left: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.A),
             right: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.D)
         };
+
+        // Mouse click for attack (only on non-touch devices)
+        if (!this.sys.game.device.input.touch) {
+            this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+                if (pointer.leftButtonDown()) {
+                    this.performBasicAttack();
+                } else if (pointer.rightButtonDown()) {
+                    this.tryUseAbility();
+                }
+            });
+        }
 
         // Gamepad connection handling
         if (this.input.gamepad) {
@@ -1951,11 +1958,23 @@ export class Game extends Scene {
             console.log('[DEBUG] Debug mode:', this.debugMode ? 'ON' : 'OFF');
         }
 
-        // Handle action input: keyboard (space for dash) and gamepad controls
+        // Handle action input: keyboard and gamepad controls
         // Keyboard: spacebar for dash
         if (Phaser.Input.Keyboard.JustDown(this.spaceKey)) {
             console.log('[ACTION] Space key pressed - dashing');
             this.performDash(600, false); // Long mobility dash
+        }
+
+        // Keyboard: Q for slash attack
+        if (Phaser.Input.Keyboard.JustDown(this.qKey)) {
+            console.log('[ACTION] Q key pressed - slash attack');
+            this.performBasicAttack();
+        }
+
+        // Keyboard: E for mask ability
+        if (Phaser.Input.Keyboard.JustDown(this.eKey)) {
+            console.log('[ACTION] E key pressed - mask ability');
+            this.tryUseAbility();
         }
 
         // Gamepad controls

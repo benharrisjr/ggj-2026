@@ -300,6 +300,16 @@ export class Masks {
     }
 
     checkEnemies() {
+        // Skip enemy visibility when using default mask (mask 0)
+        // Enemies are invisible with mask 0
+        if (this.mask === 0) {
+            this.game.enemies.getChildren().forEach((enemy) => {
+                const enemySprite = enemy as Phaser.Physics.Arcade.Image;
+                enemySprite.setVisible(false);
+            });
+            return;
+        }
+
         this.game.enemies.getChildren().forEach((enemy) => {
             const enemySprite = enemy as Phaser.Physics.Arcade.Image;
             const wasVisible = enemySprite.visible;
@@ -311,9 +321,9 @@ export class Masks {
                 // this.game.enemySpottedSound.play();
                 const xOffset = - 16;
                 const yOffset = - 60;
-                
-                const enemyAlert = this.game.add.text(this.game.player.x + xOffset, this.game.player.y + yOffset, '!', 
-                    {   
+
+                const enemyAlert = this.game.add.text(this.game.player.x + xOffset, this.game.player.y + yOffset, '!',
+                    {
                         color: 'red',
                         fontSize: 42,
                         shadow: {
@@ -326,13 +336,18 @@ export class Masks {
                         }
                     });
 
-                this.game.events.on('update', () => {
-                    enemyAlert.setPosition(this.game.player.x + xOffset, this.game.player.y + yOffset);
-                });
+                // Use a named handler so we can remove it
+                const updateHandler = () => {
+                    if (enemyAlert.active) {
+                        enemyAlert.setPosition(this.game.player.x + xOffset, this.game.player.y + yOffset);
+                    }
+                };
+                this.game.events.on('update', updateHandler);
 
                 this.game.time.delayedCall(500, () => {
-                    enemyAlert.removeFromDisplayList()
-                })
+                    this.game.events.off('update', updateHandler);
+                    enemyAlert.destroy();
+                });
             }
 
             // Check if enemy is behind the player (outside forward 180 degree arc)
@@ -429,6 +444,12 @@ export class Masks {
     checkBoss() {
         const boss = this.game.boss;
         if (!boss || !boss.active) return;
+
+        // Skip boss visibility when using default mask (mask 0)
+        if (this.mask === 0) {
+            boss.setVisible(false);
+            return;
+        }
 
         const wasVisible = boss.visible;
         const bossInMask = this.isPointInMask(boss.x, boss.y);

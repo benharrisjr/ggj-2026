@@ -39,9 +39,9 @@ export class UI {
         this.createMaskDisplay();
 
         // Create touch controls if touch is available
-        // if (this.game.sys.game.device.input.touch) {
+        if (this.game.sys.game.device.input.touch) {
             this.createTouchControls();
-        // }
+        }
     }
 
     createHealthUI() {
